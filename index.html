@@ -23,6 +23,11 @@
     --red: #c3302a;
     --red-back: #df8f8a;
     --pencil: #667084;
+    --gold: #d99a12;
+    --wood: #8a5a2b;
+    --pink: #e597a3;
+    --void: #0e1430;
+    --shrine: #261018;
     --f-display: "Permanent Marker", "Marker Felt", "Comic Sans MS", cursive;
     --f-hand: "Kalam", "Segoe Print", "Bradley Hand", cursive;
     --f-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
@@ -68,7 +73,8 @@
   }
   canvas { display: block; width: 100%; height: 100%; cursor: pointer; }
   .tray { display: flex; flex-wrap: wrap; gap: 10px 12px; align-items: center; }
-  button {
+  .tray + .tray { margin-top: -6px; }
+  button, select {
     font-family: var(--f-hand);
     font-weight: 700;
     font-size: 1.05rem;
@@ -78,18 +84,24 @@
     border: 2px solid var(--ink);
     border-radius: 7px 10px 8px 11px / 10px 7px 11px 8px;
     padding: .35rem .85rem .3rem;
-    cursor: pointer;
     box-shadow: 2px 2px 0 var(--ink);
+  }
+  button {
+    cursor: pointer;
     transition: transform .08s, box-shadow .08s;
     display: inline-flex;
     align-items: center;
     gap: .5rem;
   }
+  select { cursor: pointer; padding-right: .5rem; max-width: 100%; }
   button:hover { transform: translate(-1px, -1px); box-shadow: 3px 3px 0 var(--ink); }
   button:active { transform: translate(1px, 1px); box-shadow: 1px 1px 0 var(--ink); }
   button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
   button:disabled { opacity: .45; cursor: default; transform: none; box-shadow: 2px 2px 0 var(--ink); }
-  button:focus-visible { outline: 3px solid var(--blue); outline-offset: 3px; }
+  button:focus-visible, select:focus-visible { outline: 3px solid var(--blue); outline-offset: 3px; }
+  button.drop { border-color: var(--gold); box-shadow: 2px 2px 0 var(--gold); }
+  button.drop:hover { box-shadow: 3px 3px 0 var(--gold); }
+  label.pick { display: inline-flex; align-items: center; gap: .5rem; font-weight: 700; font-size: 1.05rem; flex-wrap: wrap; }
   kbd {
     font-family: var(--f-mono);
     font-size: .72rem;
@@ -103,19 +115,20 @@
     margin: 0;
     font-size: 1.02rem;
     color: var(--pencil);
-    max-width: 68ch;
+    max-width: 72ch;
   }
-  .note code { font-family: var(--f-mono); font-size: .85em; color: var(--ink); }
+  .note b { color: var(--ink); font-weight: 700; }
   @media (max-width: 520px) {
     kbd { display: none; }
-    button { font-size: .98rem; padding-inline: .7rem; }
+    button, select, label.pick { font-size: .98rem; }
+    button { padding-inline: .7rem; }
   }
 </style>
 
 <main>
   <header>
     <h1>Margin Fight</h1>
-    <p><span class="b">Blue</span> and <span class="vs">Red</span>, two ballpoint stick figures, fight across a notebook page. The fight is choreographed live, so no two rounds play out the same.</p>
+    <p><span class="b">Blue</span> and <span class="vs">Red</span>, two ballpoint stick figures, fight across a notebook page. Power-ups and weapons fall onto the page, and the fighters race to grab them.</p>
   </header>
 
   <div class="stage">
@@ -129,8 +142,17 @@
     <button id="btn-sound" type="button" aria-pressed="false">Sound <kbd>M</kbd></button>
     <button id="btn-restart" type="button">Restart <kbd>R</kbd></button>
   </div>
+  <div class="tray" role="toolbar" aria-label="Drops">
+    <button id="btn-orb" class="drop" type="button">Drop power-up <kbd>P</kbd></button>
+    <button id="btn-weapon" class="drop" type="button">Drop weapon <kbd>W</kbd></button>
+    <label class="pick" for="pick-power">Next power-up
+      <select id="pick-power">
+        <option value="">Random</option>
+      </select>
+    </label>
+  </div>
 
-  <p class="note">Each figure is eleven joint angles. A move is a short list of keyframed poses, eased from one to the next, with the lowest point of the body pinned to the ground line. Hits trigger a few frames of hit-stop, ink spray and screen shake.</p>
+  <p class="note">Orbs grant a random anime power: <b>Kamehameha</b> (with beam struggles), <b>Domain Expansion</b>, <b>Za Warudo</b>, <b>Rasengan</b>, <b>Shadow Clone Jutsu</b>, <b>Super Saiyan</b>, <b>Gum-Gum Pistol</b>, <b>Spirit Bomb</b>, <b>Instant Transmission</b>, <b>Black Flash</b> and <b>Getsuga Tensho</b>. Weapons are a katana, a bo staff, a war hammer, a No. 2 pencil and shuriken, and each one breaks after a few hits. Every figure is thirteen joint angles, keyframed and eased, with the lowest point pinned to the ground line.</p>
 </main>
 
 <script>
@@ -138,14 +160,15 @@
   "use strict";
 
   // ---------- constants & helpers ----------
-  const W = 800, H = 450, GROUND = 372, XMIN = 46, XMAX = W - 46;
+  const W = 800, H = 450, GROUND = 372, XMIN = 46, XMAX = W - 46, MAX_HP = 120;
   const D = Math.PI / 180;
   const LEN = { torso: 54, head: 13, ua: 31, fa: 31, th: 40, sh: 40 };
-  const FIELDS = ["t", "h", "ua1", "la1", "ua2", "la2", "th1", "sh1", "th2", "sh2", "lift"];
+  const FIELDS = ["t", "h", "ua1", "la1", "ua2", "la2", "th1", "sh1", "th2", "sh2", "lift", "rot", "wa"];
   const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
   const COL = {
     paper: css("--paper"), rule: css("--rule"), margin: css("--margin"), desk: css("--desk"),
-    ink: css("--ink"), pencil: css("--pencil"),
+    ink: css("--ink"), pencil: css("--pencil"), gold: css("--gold"), wood: css("--wood"), pink: css("--pink"),
+    void: css("--void"), shrine: css("--shrine"),
     blue: css("--blue"), blueBack: css("--blue-back"), red: css("--red"), redBack: css("--red-back"),
   };
   const FONT_DISPLAY = '"Permanent Marker", "Marker Felt", "Comic Sans MS", cursive';
@@ -155,7 +178,9 @@
   const rand = (a, b) => a + Math.random() * (b - a);
   const pick = a => a[Math.floor(Math.random() * a.length)];
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const lerp = (a, b, t) => a + (b - a) * t;
   const hash = n => { const s = Math.sin(n * 127.1) * 43758.5453; return s - Math.floor(s); };
+  const normA = v => ((v % 360) + 540) % 360 - 180;
   const EASE = {
     lin: u => u,
     out: u => 1 - Math.pow(1 - u, 3),
@@ -167,29 +192,39 @@
 
   // ---------- poses ----------
   // Angles in degrees. Torso/head measured from straight up, limbs from straight down;
-  // positive always means "toward the opponent". Lower segments are relative to the upper one.
-  // Suffix 1 = near (front) limb, 2 = far (back) limb.
+  // positive always means "toward the way the fighter faces". Lower segments are relative to the upper one.
+  // Suffix 1 = near (front) limb, 2 = far (back) limb. rot spins the whole body, wa tilts a held weapon.
   const P = {
     STANCE:      { t: 8,   h: -4,  ua1: 35,   la1: 105, ua2: 22,   la2: 118, th1: 25,  sh1: -15,  th2: -15, sh2: -10 },
     WALK_A:      { t: 10,  h: -4,  ua1: 40,   la1: 100, ua2: 16,   la2: 120, th1: 32,  sh1: -8,   th2: -24, sh2: -16 },
     WALK_B:      { t: 10,  h: -4,  ua1: 30,   la1: 108, ua2: 26,   la2: 114, th1: 6,   sh1: -38,  th2: -2,  sh2: -6, lift: 2 },
+    RUN_A:       { t: 24,  h: -8,  ua1: -45,  la1: 95,  ua2: 65,   la2: 80,  th1: 62,  sh1: -35,  th2: -38, sh2: -55, lift: 5 },
+    RUN_B:       { t: 24,  h: -8,  ua1: 65,   la1: 80,  ua2: -45,  la2: 95,  th1: -32, sh1: -65,  th2: 58,  sh2: -25, lift: 9 },
     JAB_WIND:    { t: 12,  h: -4,  ua1: 28,   la1: 122, ua2: 22,   la2: 118, th1: 27,  sh1: -18,  th2: -17, sh2: -12 },
     JAB:         { t: 18,  h: -2,  ua1: 88,   la1: 2,   ua2: 28,   la2: 112, th1: 30,  sh1: -12,  th2: -22, sh2: -6 },
     CROSS_WIND:  { t: 2,   h: -4,  ua1: 40,   la1: 105, ua2: 8,    la2: 128, th1: 24,  sh1: -20,  th2: -14, sh2: -14 },
     CROSS:       { t: 26,  h: 0,   ua1: 28,   la1: 115, ua2: 87,   la2: 0,   th1: 32,  sh1: -14,  th2: -30, sh2: 0 },
     UPPER_WIND:  { t: 2,   h: -6,  ua1: 40,   la1: 110, ua2: 5,    la2: 95,  th1: 34,  sh1: -48,  th2: -12, sh2: -42 },
     UPPERCUT:    { t: 12,  h: -14, ua1: 25,   la1: 100, ua2: 150,  la2: 12,  th1: 18,  sh1: -6,   th2: -18, sh2: -4, lift: 8 },
+    ELBOW:       { t: 24,  h: -2,  ua1: 95,   la1: -150,ua2: 25,   la2: 115, th1: 32,  sh1: -14,  th2: -26, sh2: -4 },
+    KNEE:        { t: -10, h: 6,   ua1: 62,   la1: 55,  ua2: 52,   la2: 65,  th1: 108, sh1: -145, th2: -8,  sh2: -2 },
     KICK_CHAMBER:{ t: -10, h: 6,   ua1: 45,   la1: 100, ua2: 10,   la2: 120, th1: 88,  sh1: -118, th2: -6,  sh2: -4 },
     MID_KICK:    { t: -28, h: 14,  ua1: 20,   la1: 90,  ua2: -25,  la2: 60,  th1: 100, sh1: -2,   th2: -8,  sh2: -2 },
     HIGH_KICK:   { t: -40, h: 24,  ua1: 10,   la1: 90,  ua2: -40,  la2: 40,  th1: 132, sh1: -4,   th2: -10, sh2: 0 },
+    AXE_UP:      { t: -22, h: 12,  ua1: 30,   la1: 100, ua2: -15,  la2: 90,  th1: 172, sh1: -5,   th2: -6,  sh2: -2 },
+    AXE_HIT:     { t: 16,  h: -6,  ua1: 45,   la1: 100, ua2: 20,   la2: 110, th1: 112, sh1: 0,    th2: -12, sh2: -2 },
     SWEEP_DOWN:  { t: 30,  h: -10, ua1: 60,   la1: 70,  ua2: 50,   la2: 80,  th1: 60,  sh1: -100, th2: 70,  sh2: -135 },
     SWEEP:       { t: 38,  h: -20, ua1: 95,   la1: 10,  ua2: 78,   la2: 30,  th1: 84,  sh1: 2,    th2: 72,  sh2: -140 },
     JUMP_CROUCH: { t: 20,  h: -8,  ua1: -20,  la1: 40,  ua2: -35,  la2: 30,  th1: 55,  sh1: -95,  th2: 20,  sh2: -90 },
     JUMP_RISE:   { t: 5,   h: -5,  ua1: 60,   la1: 60,  ua2: 40,   la2: 70,  th1: 70,  sh1: -120, th2: 10,  sh2: -100, lift: 55 },
     FLY_KICK:    { t: -30, h: 20,  ua1: -30,  la1: 50,  ua2: -60,  la2: 30,  th1: 96,  sh1: 0,    th2: -30, sh2: -110, lift: 60 },
+    SUPERMAN:    { t: 22,  h: 0,   ua1: 28,   la1: 110, ua2: 88,   la2: 0,   th1: 10,  sh1: -25,  th2: -60, sh2: -45, lift: 28 },
     LAND:        { t: 22,  h: -6,  ua1: 30,   la1: 80,  ua2: 10,   la2: 90,  th1: 45,  sh1: -75,  th2: -5,  sh2: -70 },
     SPIN_WIND:   { t: -20, h: 0,   ua1: 60,   la1: 60,  ua2: -30,  la2: 90,  th1: 10,  sh1: -10,  th2: -40, sh2: -60 },
     SPIN_KICK:   { t: -45, h: 30,  ua1: -20,  la1: 60,  ua2: -60,  la2: 40,  th1: 8,   sh1: -4,   th2: 118, sh2: -2 },
+    GRAB:        { t: 22,  h: 0,   ua1: 82,   la1: 18,  ua2: 72,   la2: 28,  th1: 32,  sh1: -16,  th2: -22, sh2: -8 },
+    THROW_OVER:  { t: -32, h: -12, ua1: 178,  la1: 10,  ua2: 170,  la2: 18,  th1: 26,  sh1: -28,  th2: -22, sh2: -22 },
+    TUCK:        { t: 35,  h: 10,  ua1: 60,   la1: 100, ua2: 50,   la2: 110, th1: 115, sh1: -145, th2: 105, sh2: -145 },
     HIT_HEAD:    { t: -28, h: -30, ua1: -5,   la1: 50,  ua2: -25,  la2: 40,  th1: 20,  sh1: -10,  th2: -28, sh2: -8 },
     HIT_BODY:    { t: 42,  h: 25,  ua1: 30,   la1: 70,  ua2: 45,   la2: 75,  th1: 12,  sh1: -30,  th2: -18, sh2: -25 },
     BLOCK_HIGH:  { t: 0,   h: 8,   ua1: 55,   la1: 120, ua2: 45,   la2: 125, th1: 28,  sh1: -28,  th2: -18, sh2: -20 },
@@ -202,33 +237,97 @@
     DOWN:        { t: -100,h: 10,  ua1: -100, la1: 10,  ua2: 70,   la2: 20,  th1: 85,  sh1: -10,  th2: 96,  sh2: -20 },
     SIT_UP:      { t: -35, h: 5,   ua1: -30,  la1: 0,   ua2: -45,  la2: 0,   th1: 120, sh1: -150, th2: 88,  sh2: -4 },
     KNEEL:       { t: 12,  h: -5,  ua1: 50,   la1: 90,  ua2: 20,   la2: 100, th1: 90,  sh1: -90,  th2: 0,   sh2: -90 },
+    STUNNED:     { t: 6,   h: 22,  ua1: 8,    la1: 8,   ua2: 4,    la2: 12,  th1: 12,  sh1: -6,   th2: -10, sh2: -4 },
+    TAUNT_A:     { t: -6,  h: -12, ua1: 75,   la1: 75,  ua2: 12,   la2: 25,  th1: 14,  sh1: -4,   th2: -14, sh2: -4 },
+    PICKUP:      { t: 55,  h: -12, ua1: 72,   la1: 8,   ua2: 40,   la2: 60,  th1: 62,  sh1: -105, th2: -12, sh2: -85 },
     VICTORY:     { t: -4,  h: -14, ua1: 168,  la1: -5,  ua2: 15,   la2: 10,  th1: 10,  sh1: -2,   th2: -10, sh2: -2 },
+    VICTORY2:    { t: 0,   h: -10, ua1: 90,   la1: 80,  ua2: -90,  la2: -80, th1: 18,  sh1: -4,   th2: -18, sh2: -4 },
+    BOW:         { t: 52,  h: 18,  ua1: 6,    la1: 6,   ua2: 2,    la2: 6,   th1: 6,   sh1: 0,    th2: -6,  sh2: 0 },
+    // anime specials
+    KAME_CHARGE: { t: -8,  h: -5,  ua1: -45,  la1: 75,  ua2: -35,  la2: 70,  th1: 38,  sh1: -38,  th2: -32, sh2: -18 },
+    KAME_FIRE:   { t: 16,  h: 0,   ua1: 86,   la1: 0,   ua2: 80,   la2: 6,   th1: 42,  sh1: -22,  th2: -36, sh2: 0 },
+    HAND_SIGN:   { t: 0,   h: 5,   ua1: 22,   la1: 150, ua2: 28,   la2: 142, th1: 20,  sh1: -6,   th2: -15, sh2: -5 },
+    TS_POSE:     { t: -14, h: -18, ua1: 125,  la1: -35, ua2: 35,   la2: 125, th1: 32,  sh1: -12,  th2: -26, sh2: -22 },
+    RASEN_HOLD:  { t: 15,  h: 0,   ua1: 72,   la1: 8,   ua2: 62,   la2: 40,  th1: 36,  sh1: -36,  th2: -26, sh2: -16 },
+    RASEN_STRIKE:{ t: 30,  h: 0,   ua1: 88,   la1: 0,   ua2: 40,   la2: 60,  th1: 42,  sh1: -12,  th2: -36, sh2: 0 },
+    POWER_UP:    { t: 10,  h: -26, ua1: 26,   la1: -18, ua2: 16,   la2: -12, th1: 36,  sh1: -42,  th2: -36, sh2: -36 },
+    GUM_WIND:    { t: -16, h: -5,  ua1: -72,  la1: 10,  ua2: 40,   la2: 100, th1: 30,  sh1: -26,  th2: -26, sh2: -10 },
+    ARMS_UP:     { t: -6,  h: -26, ua1: 172,  la1: 0,   ua2: 165,  la2: 6,   th1: 16,  sh1: -5,   th2: -16, sh2: -5 },
+    THROW_BOMB:  { t: 26,  h: 5,   ua1: 102,  la1: 0,   ua2: 96,   la2: 5,   th1: 36,  sh1: -20,  th2: -32, sh2: -4 },
+    IT_POSE:     { t: 2,   h: -6,  ua1: 22,   la1: 150, ua2: 18,   la2: 95,  th1: 22,  sh1: -12,  th2: -16, sh2: -8 },
+    // weapons
+    KAT_WIND:    { t: -6,  h: -5,  ua1: 165,  la1: 25,  ua2: 30,   la2: 110, th1: 28,  sh1: -18,  th2: -18, sh2: -10 },
+    KAT_SLASH:   { t: 28,  h: 0,   ua1: 70,   la1: 5,   ua2: 40,   la2: 90,  th1: 36,  sh1: -12,  th2: -30, sh2: 0, wa: 15 },
+    KAT_LOW:     { t: 20,  h: -5,  ua1: -20,  la1: 30,  ua2: 30,   la2: 100, th1: 35,  sh1: -40,  th2: -25, sh2: -30 },
+    KAT_RISE:    { t: -10, h: 5,   ua1: 140,  la1: 10,  ua2: 30,   la2: 100, th1: 28,  sh1: -10,  th2: -20, sh2: -5, wa: 10 },
+    KAT_THRUST:  { t: 22,  h: 0,   ua1: 88,   la1: 2,   ua2: 25,   la2: 110, th1: 34,  sh1: -10,  th2: -28, sh2: -4 },
+    STAFF_HOLD:  { t: 10,  h: -4,  ua1: 70,   la1: 20,  ua2: 50,   la2: 50,  th1: 28,  sh1: -20,  th2: -18, sh2: -12, wa: -50 },
+    STAFF_THRUST:{ t: 25,  h: 0,   ua1: 90,   la1: 0,   ua2: 80,   la2: 10,  th1: 36,  sh1: -12,  th2: -30, sh2: -2 },
+    STAFF_LOW:   { t: 35,  h: -10, ua1: 60,   la1: 10,  ua2: 50,   la2: 30,  th1: 50,  sh1: -60,  th2: -25, sh2: -35, wa: -30 },
+    HAM_WIND:    { t: -18, h: -8,  ua1: 175,  la1: 25,  ua2: 168,  la2: 25,  th1: 26,  sh1: -14,  th2: -18, sh2: -10 },
+    HAM_SMASH:   { t: 35,  h: 5,   ua1: 82,   la1: 0,   ua2: 76,   la2: 5,   th1: 45,  sh1: -30,  th2: -30, sh2: -5, wa: 3 },
+    HAM_GROUND:  { t: 45,  h: 10,  ua1: 58,   la1: 0,   ua2: 52,   la2: 5,   th1: 50,  sh1: -50,  th2: -30, sh2: -15, wa: -18 },
+    STAR_WIND:   { t: -12, h: 0,   ua1: -40,  la1: 150, ua2: 40,   la2: 90,  th1: 28,  sh1: -20,  th2: -20, sh2: -10 },
+    STAR_THROW:  { t: 26,  h: 0,   ua1: 96,   la1: 0,   ua2: 15,   la2: 60,  th1: 34,  sh1: -12,  th2: -30, sh2: -2 },
   };
   for (const k in P) for (const f of FIELDS) if (P[k][f] === undefined) P[k][f] = 0;
+  Object.assign(P, {
+    TUCK_A: { ...P.TUCK, rot: -180, lift: 70 },
+    TUCK_B: { ...P.TUCK, rot: -360, lift: 14 },
+    SPIN_AIR: { ...P.KNOCK_AIR, rot: -720, lift: 60 },
+    THROWN_A: { ...P.KNOCK_AIR, rot: 170, lift: 85 },
+    THROWN_B: { ...P.DOWN, rot: 360 },
+    SUPER_HOP: { ...P.HOP, lift: 135 },
+    STAFF_SPIN: { ...P.STAFF_HOLD, wa: 310 },
+    TWIRL: { ...P.STANCE, wa: 360 },
+    POWER_UP2: { ...P.POWER_UP, t: 14, h: -32, ua1: 30, ua2: 12 },
+    TAUNT_B: { ...P.TAUNT_A, la1: 135 },
+  });
 
   const lerpPose = (a, b, e) => { const o = {}; for (const f of FIELDS) o[f] = a[f] + (b[f] - a[f]) * e; return o; };
 
-  // forward kinematics: pose + hip position + facing -> joint positions
-  function fk(p, hx, hy, f) {
+  const WEAPONS = {
+    katana:   { name: "Katana", len: 64, back: 12, uses: 6 },
+    staff:    { name: "Bo staff", len: 66, back: 40, uses: 7 },
+    hammer:   { name: "War hammer", len: 54, back: 8, uses: 4 },
+    pencil:   { name: "No. 2 pencil", len: 58, back: 18, uses: 6 },
+    shuriken: { name: "Shuriken", len: 0, back: 0, uses: 3, thrown: true },
+  };
+
+  // forward kinematics: pose + hip position + facing -> joint positions (plus weapon base/mid/tip)
+  function fk(p, hx, hy, f, F) {
+    const as = F ? F.armScale : 1;
+    const wp = F && F.weapon ? WEAPONS[F.weapon.type] : null;
     const seg = (o, a, len) => [o[0] + Math.sin(a * D) * len * f, o[1] + Math.cos(a * D) * len];
     const hip = [hx, hy];
     const neck = [hx + Math.sin(p.t * D) * LEN.torso * f, hy - Math.cos(p.t * D) * LEN.torso];
     const sh = [hx + (neck[0] - hx) * .9, hy + (neck[1] - hy) * .9];
     const ha = (p.t + p.h) * D;
     const head = [neck[0] + Math.sin(ha) * (LEN.head + 2) * f, neck[1] - Math.cos(ha) * (LEN.head + 2)];
-    const e1 = seg(sh, p.ua1, LEN.ua), h1 = seg(e1, p.ua1 + p.la1, LEN.fa);
+    const e1 = seg(sh, p.ua1, LEN.ua * as), h1 = seg(e1, p.ua1 + p.la1, LEN.fa * as);
     const e2 = seg(sh, p.ua2, LEN.ua), h2 = seg(e2, p.ua2 + p.la2, LEN.fa);
     const k1 = seg(hip, p.th1, LEN.th), f1 = seg(k1, p.th1 + p.sh1, LEN.sh);
     const k2 = seg(hip, p.th2, LEN.th), f2 = seg(k2, p.th2 + p.sh2, LEN.sh);
-    return { hip, neck, sh, head, e1, h1, e2, h2, k1, f1, k2, f2 };
+    const r = { hip, neck, sh, head, e1, h1, e2, h2, k1, f1, k2, f2 };
+    if (wp && !wp.thrown) {
+      const a = (p.ua1 + p.la1 + p.wa) * D, ux = Math.sin(a) * f, uy = Math.cos(a);
+      r.wb = [h1[0] - ux * wp.back, h1[1] - uy * wp.back];
+      r.wm = [h1[0] + ux * wp.len * .5, h1[1] + uy * wp.len * .5];
+      r.wt = [h1[0] + ux * wp.len, h1[1] + uy * wp.len];
+    }
+    if (p.rot) {
+      const cx = hx, cy = hy - 26, a = p.rot * f * D, c = Math.cos(a), s = Math.sin(a);
+      for (const k in r) { const [x, y] = r[k]; r[k] = [cx + (x - cx) * c - (y - cy) * s, cy + (x - cx) * s + (y - cy) * c]; }
+    }
+    return r;
   }
   const JOINTS = ["hip", "neck", "e1", "h1", "e2", "h2", "k1", "f1", "k2", "f2"];
   // place the body so its lowest point rests on the ground line (minus any jump lift)
-  function grounded(p, x, f) {
-    const r = fk(p, x, 0, f);
+  function grounded(p, x, f, F) {
+    const r = fk(p, x, 0, f, F);
     let low = r.head[1] + LEN.head;
     for (const j of JOINTS) low = Math.max(low, r[j][1]);
-    return fk(p, x, GROUND - low - p.lift, f);
+    return fk(p, x, GROUND - low - p.lift, f, F);
   }
   function idlePose(t) {
     const c = (1 - Math.cos(t * .0058)) / 2, s = Math.sin(t * .0029);
@@ -237,35 +336,39 @@
     p.t += 2 * c; p.ua1 += 4 * s; p.la1 += 5 * c; p.ua2 -= 3 * s;
     return p;
   }
+  const chest = F => [(F.pts.hip[0] + F.pts.neck[0]) / 2, (F.pts.hip[1] * .4 + F.pts.neck[1] * .6)];
 
   // ---------- fighters ----------
   class Fighter {
     constructor(name, color, back, headband) {
-      Object.assign(this, { name, color, back, headband, wins: 0 });
+      Object.assign(this, { name, color, back, headband, wins: 0, ghost: false, owner: null });
     }
     reset(x, f) {
       Object.assign(this, {
-        x, f, hp: 100, hpLag: 100, lagDelay: 0, pose: { ...P.STANCE }, key: null, queue: [],
+        x, f, hp: MAX_HP, hpLag: MAX_HP, lagDelay: 0, pose: { ...P.STANCE }, key: null, queue: [],
         idleT: 0, hold: false, trail: [], waiters: [], vx: 0, down: false,
+        weapon: null, special: null, ssj: 0, armScale: 1, alpha: 1, charge: null, orb: null, dazed: 0,
       });
-      this.pts = grounded(this.pose, this.x, this.f);
+      this.pts = grounded(this.pose, this.x, this.f, this);
     }
     get busy() { return !!this.key || this.queue.length > 0; }
     done() { return this.busy ? new Promise(r => this.waiters.push(r)) : Promise.resolve(); }
-    play(keys, interrupt) {
+    play(keys, interrupt, settle = true) {
       if (interrupt) { this.queue = []; this.key = null; }
       const last = keys[keys.length - 1];
-      if (!last.hold && last.pose !== P.STANCE) keys = [...keys, { pose: P.STANCE, dur: 180 }];
+      if (settle && !last.hold && last.pose !== P.STANCE) keys = [...keys, { pose: P.STANCE, dur: 180 }];
       this.queue.push(...keys);
       this.hold = false;
     }
     face() { const s = Math.sign(this.opp.x - this.x); if (s) this.f = s; }
     startKey(k) {
-      this.face();
+      if (k.face) this.f = k.face; else if (!k.keep) this.face();
       this.key = k; this.kt = 0; this.from = { ...this.pose }; this.x0 = this.x;
       if (k.onStart) k.onStart();
     }
     update(dt) {
+      if (this.ssj > 0) { this.ssj -= dt; dt *= 1.3; }
+      if (this.dazed > 0) this.dazed -= dt;
       const px = this.x;
       if (!this.key && this.queue.length) this.startKey(this.queue.shift());
       let ended = null;
@@ -275,13 +378,17 @@
         const u = Math.min(1, this.kt / k.dur), e = (k.ease || EASE.inOut)(u);
         this.pose = lerpPose(this.from, k.pose, e);
         this.x = clamp(this.x0 + (k.dx || 0) * this.f * e, XMIN, XMAX);
-        if (u >= 1) { ended = k; this.key = null; this.hold = !!k.hold; }
+        if (k.wall && !k.wallHit && k.dx && (this.x <= XMIN || this.x >= XMAX)) { k.wallHit = true; wallSlam(this); }
+        if (u >= 1) {
+          ended = k; this.key = null; this.hold = !!k.hold;
+          this.pose.rot = normA(this.pose.rot); this.pose.wa = normA(this.pose.wa);
+        }
       } else if (!this.hold) {
         this.idleT += dt;
         this.face();
         this.pose = idlePose(this.idleT);
       }
-      this.pts = grounded(this.pose, this.x, this.f);
+      this.pts = grounded(this.pose, this.x, this.f, this);
       if (ended) {
         if (ended.onEnd) ended.onEnd();
         if (!this.key && this.queue.length) this.startKey(this.queue.shift());
@@ -289,18 +396,21 @@
       }
       if (dt > 0) this.vx = (this.x - px) / dt;
 
-      // motion smear for the striking limb
+      // motion smear for the striking limb or weapon
       for (const t of this.trail) if (t) t.age += dt;
-      this.trail = this.trail.filter(t => t === null || t.age < 110);
+      this.trail = this.trail.filter(t => t === null || t.age < 150);
       while (this.trail[0] === null) this.trail.shift();
       const limb = this.key && this.key.trail;
-      if (limb) { const p = this.pts[limb]; this.trail.push({ x: p[0], y: p[1], age: 0 }); }
-      else if (this.trail.length && this.trail[this.trail.length - 1] !== null) this.trail.push(null);
+      const p = limb && this.pts[limb];
+      if (p) {
+        const isW = limb[0] === "w";
+        this.trail.push({ x: p[0], y: p[1], x2: isW ? this.pts.h1[0] : null, y2: isW ? this.pts.h1[1] : null, age: 0 });
+      } else if (this.trail.length && this.trail[this.trail.length - 1] !== null) this.trail.push(null);
 
       // health bar lag
       if (this.hpLag > this.hp) {
         if (this.lagDelay > 0) this.lagDelay -= dt;
-        else this.hpLag = Math.max(this.hp, this.hpLag - dt * .045);
+        else this.hpLag = Math.max(this.hp, this.hpLag - dt * .06);
       }
       if (!this.busy && this.waiters.length) { const w = this.waiters; this.waiters = []; w.forEach(r => r()); }
     }
@@ -308,6 +418,7 @@
   const A = new Fighter("Blue", COL.blue, COL.blueBack, false);
   const B = new Fighter("Red", COL.red, COL.redBack, true);
   A.opp = B; B.opp = A;
+  let extras = []; // shadow clones
 
   // ---------- moves ----------
   const MOVES = {
@@ -324,6 +435,16 @@
       { pose: P.UPPERCUT, dur: 110, dx: 10, ease: EASE.out, strike: true },
       { pose: P.UPPERCUT, dur: 120 },
       { pose: P.STANCE, dur: 240, dx: -6 }] },
+    elbow: { limb: "e1", height: "high", dmg: 7, keys: () => [
+      { pose: P.JAB_WIND, dur: 100, ease: EASE.out },
+      { pose: P.ELBOW, dur: 80, dx: 14, ease: EASE.out, strike: true },
+      { pose: P.ELBOW, dur: 80 },
+      { pose: P.STANCE, dur: 180, dx: -6 }] },
+    knee: { limb: "k1", height: "mid", dmg: 8, keys: () => [
+      { pose: P.KICK_CHAMBER, dur: 110, ease: EASE.out },
+      { pose: P.KNEE, dur: 80, dx: 12, ease: EASE.out, strike: true },
+      { pose: P.KNEE, dur: 90 },
+      { pose: P.STANCE, dur: 200, dx: -6 }] },
     midKick: { limb: "f1", height: "mid", dmg: 9, keys: () => [
       { pose: P.KICK_CHAMBER, dur: 130, ease: EASE.out },
       { pose: P.MID_KICK, dur: 95, dx: 6, ease: EASE.out, strike: true },
@@ -335,56 +456,156 @@
       { pose: P.HIGH_KICK, dur: 90 },
       { pose: P.KICK_CHAMBER, dur: 160 },
       { pose: P.STANCE, dur: 220, dx: -4 }] },
+    axeKick: { limb: "f1", height: "high", dmg: 12, keys: () => [
+      { pose: P.KICK_CHAMBER, dur: 120, ease: EASE.out },
+      { pose: P.AXE_UP, dur: 180, ease: EASE.out },
+      { pose: P.AXE_HIT, dur: 100, dx: 10, ease: EASE.in, strike: true },
+      { pose: P.KICK_CHAMBER, dur: 150 },
+      { pose: P.STANCE, dur: 220 }] },
     sweep: { limb: "f1", height: "low", dmg: 7, heavy: true, keys: () => [
       { pose: P.SWEEP_DOWN, dur: 160, ease: EASE.out },
       { pose: P.SWEEP, dur: 130, dx: 6, ease: EASE.out, strike: true },
       { pose: P.SWEEP, dur: 120 },
       { pose: P.STANCE, dur: 300 }] },
+    superman: { limb: "h2", height: "high", dmg: 10, keys: () => [
+      { pose: P.JUMP_CROUCH, dur: 130, ease: EASE.out },
+      { pose: P.SUPERMAN, dur: 170, dx: 60, ease: EASE.out, strike: true },
+      { pose: P.LAND, dur: 170, dx: 6, ease: EASE.in },
+      { pose: P.STANCE, dur: 220 }] },
     flyingKick: { limb: "f1", height: "mid", dmg: 15, heavy: true, keys: () => [
       { pose: P.JUMP_CROUCH, dur: 170, ease: EASE.out },
       { pose: P.JUMP_RISE, dur: 180, dx: 50, ease: EASE.out },
       { pose: P.FLY_KICK, dur: 150, dx: 80, ease: EASE.lin, strike: true },
-      { pose: P.LAND, dur: 240, dx: 24, ease: EASE.in, onEnd: () => {} },
+      { pose: P.LAND, dur: 240, dx: 24, ease: EASE.in },
       { pose: P.STANCE, dur: 260 }] },
     spinKick: { limb: "f2", height: "high", dmg: 14, heavy: true, keys: () => [
       { pose: P.SPIN_WIND, dur: 150 },
       { pose: P.SPIN_KICK, dur: 120, dx: 10, ease: EASE.out, strike: true },
       { pose: P.SPIN_KICK, dur: 100 },
       { pose: P.STANCE, dur: 260, dx: -4 }] },
+    throw: { limb: "h1", height: "mid", dmg: 12, grab: true, keys: () => [
+      { pose: P.JAB_WIND, dur: 90, ease: EASE.out },
+      { pose: P.GRAB, dur: 120, dx: 14, ease: EASE.out, strike: true },
+      { pose: P.GRAB, dur: 80 },
+      { pose: P.STANCE, dur: 200, dx: -10 }] },
+    rasenStrike: { limb: "h1", height: "mid", dmg: 18, heavy: true, keys: () => [
+      { pose: P.RASEN_STRIKE, dur: 120, dx: 16, ease: EASE.out, strike: true },
+      { pose: P.RASEN_STRIKE, dur: 180 },
+      { pose: P.STANCE, dur: 240 }] },
   };
-  // how far into the target body the strike lands, per height
-  const DEPTH = { high: 16, mid: 3, low: 20 };
-  // starting distance for each move = forward travel up to the strike + limb reach + target depth
-  for (const m of Object.values(MOVES)) {
-    let dx = 0;
-    for (const k of m.keys()) {
-      dx += k.dx || 0;
-      if (k.strike) { m.range = dx + fk(k.pose, 0, 0, 1)[m.limb][0] + DEPTH[m.height]; break; }
-    }
-  }
   const COMBOS = [
     ["jab", "cross"], ["jab", "jab", "cross"], ["jab", "cross", "highKick"], ["cross", "uppercut"],
     ["midKick"], ["highKick"], ["jab", "midKick"], ["sweep"], ["flyingKick"], ["jab", "spinKick"],
     ["cross", "midKick", "highKick"], ["jab", "cross", "sweep"], ["uppercut"], ["jab", "jab"],
+    ["elbow", "knee"], ["jab", "elbow"], ["axeKick"], ["superman"], ["throw"], ["jab", "throw"], ["knee", "uppercut"],
   ];
+  const WMOVES = {
+    katana: {
+      slash: { limb: "wt", height: "high", dmg: 9, keys: () => [
+        { pose: P.KAT_WIND, dur: 170, ease: EASE.out },
+        { pose: P.KAT_SLASH, dur: 100, dx: 12, ease: EASE.out, strike: true },
+        { pose: P.KAT_SLASH, dur: 120 },
+        { pose: P.STANCE, dur: 220 }] },
+      rise: { limb: "wm", height: "high", dmg: 9, keys: () => [
+        { pose: P.KAT_LOW, dur: 150, ease: EASE.out },
+        { pose: P.KAT_RISE, dur: 100, dx: 8, ease: EASE.out, strike: true },
+        { pose: P.KAT_RISE, dur: 120 },
+        { pose: P.STANCE, dur: 220 }] },
+      thrust: { limb: "wt", height: "mid", dmg: 10, keys: () => [
+        { pose: P.JAB_WIND, dur: 110, ease: EASE.out },
+        { pose: P.KAT_THRUST, dur: 90, dx: 18, ease: EASE.out, strike: true },
+        { pose: P.KAT_THRUST, dur: 100 },
+        { pose: P.STANCE, dur: 200, dx: -8 }] },
+    },
+    staff: {
+      thrust: { limb: "wt", height: "mid", dmg: 7, keys: () => [
+        { pose: P.STAFF_HOLD, dur: 110, ease: EASE.out },
+        { pose: P.STAFF_THRUST, dur: 90, dx: 16, ease: EASE.out, strike: true },
+        { pose: P.STAFF_THRUST, dur: 100 },
+        { pose: P.STANCE, dur: 200, dx: -8 }] },
+      sweep: { limb: "wt", height: "low", dmg: 8, heavy: true, keys: () => [
+        { pose: P.STAFF_HOLD, dur: 130 },
+        { pose: P.STAFF_LOW, dur: 120, dx: 8, ease: EASE.out, strike: true },
+        { pose: P.STAFF_LOW, dur: 120 },
+        { pose: P.STANCE, dur: 260 }] },
+      spin: { limb: "wt", height: "mid", dmg: 11, keys: () => [
+        { pose: P.STAFF_HOLD, dur: 100 },
+        { pose: P.STAFF_SPIN, dur: 170, ease: EASE.lin, trail: "wt" },
+        { pose: P.STAFF_SPIN, dur: 170, ease: EASE.lin, trail: "wt" },
+        { pose: P.STAFF_THRUST, dur: 100, dx: 18, ease: EASE.out, strike: true },
+        { pose: P.STAFF_THRUST, dur: 100 },
+        { pose: P.STANCE, dur: 220, dx: -6 }] },
+    },
+    hammer: {
+      smash: { limb: "wt", height: "high", dmg: 15, heavy: true, keys: () => [
+        { pose: P.HAM_WIND, dur: 280, ease: EASE.out },
+        { pose: P.HAM_WIND, dur: 110 },
+        { pose: P.HAM_SMASH, dur: 110, dx: 10, ease: EASE.in, strike: true },
+        { pose: P.HAM_GROUND, dur: 90, trail: "wt", pound: true },
+        { pose: P.HAM_GROUND, dur: 260 },
+        { pose: P.STANCE, dur: 320 }] },
+    },
+    pencil: {
+      stab: { limb: "wt", height: "mid", dmg: 7, keys: () => [
+        { pose: P.JAB_WIND, dur: 90, ease: EASE.out },
+        { pose: P.KAT_THRUST, dur: 75, dx: 14, ease: EASE.out, strike: true },
+        { pose: P.STANCE, dur: 160, dx: -6 }] },
+      slash: { limb: "wt", height: "high", dmg: 8, keys: () => [
+        { pose: P.KAT_WIND, dur: 150, ease: EASE.out },
+        { pose: P.KAT_SLASH, dur: 95, dx: 10, ease: EASE.out, strike: true },
+        { pose: P.KAT_SLASH, dur: 100 },
+        { pose: P.STANCE, dur: 200 }] },
+    },
+  };
+  const WCOMBOS = {
+    katana: [["slash"], ["slash", "rise"], ["thrust", "slash"], ["rise", "thrust"]],
+    staff: [["thrust"], ["spin"], ["thrust", "sweep"], ["thrust", "thrust"]],
+    hammer: [["smash"]],
+    pencil: [["stab", "stab", "slash"], ["slash"], ["stab", "slash"]],
+  };
+  // how far into the target body the strike lands, per height
+  const DEPTH = { high: 16, mid: 3, low: 20 };
+  // starting distance for a move = forward travel up to the strike + limb (or weapon) reach + target depth
+  function rangeOf(mv, F) {
+    let dx = 0;
+    const probe = { armScale: 1, weapon: F.weapon };
+    for (const k of mv.keys()) {
+      dx += k.dx || 0;
+      if (k.strike) { const r = fk(k.pose, 0, 0, 1, probe); return dx + (r[mv.limb] || r.h1)[0] + DEPTH[mv.height]; }
+    }
+    return 90;
+  }
   const WORDS = {
     light: ["WHAP", "POP", "SMAK", "THWIP", "BAP"],
     heavy: ["KRAK", "WHAM", "THOOM", "KA-POW"],
+    blade: ["SHING", "SLASH", "SHNK", "KSSH"],
     block: ["TAK", "KLAK", "TOK"],
     whiff: ["whiff", "swish", "fwip"],
   };
+  const QUIPS = ["Believe it!", "Plus Ultra!", "Yare yare daze.", "Too easy.", "Nothing personal.", "Omae wa mou shindeiru.", "Is that all?", "Still standing."];
 
-  // ---------- simulation clock ----------
+  // ---------- simulation clock & world ----------
   const sim = { time: 0, waits: [] };
   const wait = ms => new Promise(r => sim.waits.push({ t: ms, r }));
+  const world = {
+    tweens: [], frozen: [], domain: null, ts: null, beams: [], bombs: [], clash: null, flash: null,
+    rumble: 0, spawnT: 0, fighting: false,
+  };
+  function tween(obj, key, to, dur, ease = EASE.inOut) {
+    return new Promise(r => world.tweens.push({ obj, key, from: obj[key], to, dur: Math.max(1, dur), t: 0, ease, r }));
+  }
   let paused = reducedMotion, slow = false, stepOnce = false, hitStop = 0, slowMoT = 0, shakeAmp = 0;
-  let round = 1, G = 0;
+  let round = 1, G = 0, roundOver = false;
 
   // ---------- effects ----------
-  let bursts = [], drops = [], stains = [], dusts = [], banners = [];
-  function burst(p, color, size, word, kind) {
-    bursts.push({ x: p[0], y: p[1], age: 0, life: kind === "heavy" ? 520 : 380, size, color, word, kind,
-      rot: rand(-.25, .25), seed: Math.random() * 100 });
+  let bursts = [], drops = [], stains = [], dusts = [], banners = [], fxs = [], items = [], projectiles = [];
+  function burst(p, color, size, word, kind, extra) {
+    bursts.push(Object.assign({ x: p[0], y: p[1], age: 0, life: kind === "heavy" ? 520 : 380, size, color, word, kind,
+      rot: rand(-.25, .25), seed: Math.random() * 100 }, extra));
+  }
+  function shout(F, text, size = 22) {
+    const h = F.pts.head;
+    bursts.push({ x: clamp(h[0], 30 + text.length * size * .28, W - 30 - text.length * size * .28), y: h[1] - 30, age: 0, life: 1000, size, color: F.color, word: text, kind: "shout", rot: rand(-.07, .07), seed: 0 });
   }
   function spray(p, dir, n, color, power) {
     for (let i = 0; i < n; i++) {
@@ -392,11 +613,29 @@
       drops.push({ x: p[0], y: p[1], vx: Math.cos(a) * sp * dir + rand(-.04, .04), vy: Math.sin(a) * sp, r: rand(1.2, 3.4), color });
     }
   }
-  function dust(x, n = 10) {
-    for (let i = 0; i < n; i++) dusts.push({ x: x + rand(-30, 30), y: GROUND - rand(0, 6), vx: rand(-.08, .08), r: rand(4, 9), age: 0, life: rand(380, 620) });
+  function dust(x, n = 10, y = GROUND, spread = 30, big = 1) {
+    for (let i = 0; i < n; i++) dusts.push({ x: x + rand(-spread, spread), y: y - rand(0, 6), vx: rand(-.08, .08), r: rand(4, 9) * big, age: 0, life: rand(380, 620) });
   }
+  function poof(x, y) { dust(x, 14, y, 22, 1.8); SFX.poof(); }
   function shake(a) { if (!reducedMotion) shakeAmp = Math.max(shakeAmp, a); }
-  function banner(text, life, size, color) { banners.push({ text, age: 0, life, size, color, rot: rand(-.06, .03) }); }
+  function banner(text, life, size, color, stroke) { banners.push({ text, age: 0, life, size, color, stroke: stroke || COL.paper, rot: rand(-.06, .03) }); }
+  function ring(x, y, r0, r1, life, color, lw = 3) { fxs.push({ type: "ring", x, y, r0, r1, life, color, lw, age: 0 }); }
+  function wallSlam(F) {
+    const x = F.x <= XMIN ? 0 : W, y = F.pts.neck[1];
+    const pts = []; let px = x, py = y;
+    for (let i = 0; i < 9; i++) { px += (x === 0 ? 1 : -1) * rand(6, 16); py += rand(-14, 14); pts.push([px, py]); }
+    const pts2 = []; px = x; py = y + 10;
+    for (let i = 0; i < 6; i++) { px += (x === 0 ? 1 : -1) * rand(6, 14); py += rand(-4, 18); pts2.push([px, py]); }
+    fxs.push({ type: "crack", start: [x, y], pts, pts2, age: 0, life: Infinity });
+    burst([x === 0 ? 30 : W - 30, y], COL.ink, 26, "CRUNCH", "heavy");
+    shake(8); SFX.hit(true);
+  }
+  function groundCrack(x) {
+    const mk = (n, dx, dy) => { const pts = []; let px = x, py = GROUND + 2; for (let i = 0; i < n; i++) { px += dx * rand(5, 12); py += rand(-1, dy); pts.push([px, py]); } return pts; };
+    fxs.push({ type: "crack", start: [x, GROUND + 2], pts: mk(7, 1, 5), pts2: mk(6, -1, 5), age: 0, life: Infinity });
+    dust(x, 12, GROUND, 26); ring(x, GROUND, 6, 90, 420, COL.pencil, 2);
+    shake(10); SFX.boom();
+  }
 
   // ---------- sound (synthesised, off by default) ----------
   let AC = null, noiseBuf = null, soundOn = false;
@@ -405,7 +644,7 @@
       const Ctx = window.AudioContext || window.webkitAudioContext;
       if (!Ctx) return false;
       AC = new Ctx();
-      noiseBuf = AC.createBuffer(1, AC.sampleRate * .5, AC.sampleRate);
+      noiseBuf = AC.createBuffer(1, AC.sampleRate * 1.2, AC.sampleRate);
       const d = noiseBuf.getChannelData(0);
       for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
     }
@@ -419,165 +658,734 @@
     g.gain.setValueAtTime(gain, t); g.gain.exponentialRampToValueAtTime(.001, t + dur);
     s.connect(fl).connect(g).connect(AC.destination); s.start(t); s.stop(t + dur + .02);
   }
-  function thump(f0, dur, gain) {
+  function tone(f0, f1, dur, gain, type = "sine") {
     const t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain();
-    o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f0 * .4, t + dur);
+    o.type = type;
+    o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur);
     g.gain.setValueAtTime(gain, t); g.gain.exponentialRampToValueAtTime(.001, t + dur);
     o.connect(g).connect(AC.destination); o.start(t); o.stop(t + dur + .02);
   }
   const SFX = {
     whoosh() { if (soundOn) noise(.15, "bandpass", 500, 2600, .16); },
-    hit(heavy) { if (soundOn) { noise(heavy ? .22 : .11, "lowpass", heavy ? 2400 : 3400, 260, heavy ? .55 : .38); thump(heavy ? 120 : 160, heavy ? .26 : .12, heavy ? .7 : .4); } },
+    hit(heavy) { if (soundOn) { noise(heavy ? .22 : .11, "lowpass", heavy ? 2400 : 3400, 260, heavy ? .55 : .38); tone(heavy ? 120 : 160, heavy ? 48 : 64, heavy ? .26 : .12, heavy ? .7 : .4); } },
     block() { if (soundOn) noise(.06, "highpass", 2600, 1800, .3); },
-    fall() { if (soundOn) { noise(.3, "lowpass", 900, 120, .45); thump(70, .3, .6); } },
+    fall() { if (soundOn) { noise(.3, "lowpass", 900, 120, .45); tone(70, 28, .3, .6); } },
+    charge(sec) { if (soundOn) tone(110, 520, sec, .07, "sawtooth"); },
+    beam() { if (soundOn) { noise(1.1, "lowpass", 2200, 300, .45); tone(90, 60, 1.1, .3, "sawtooth"); } },
+    boom() { if (soundOn) { noise(.7, "lowpass", 1500, 60, .8); tone(70, 25, .6, .9); } },
+    poof() { if (soundOn) noise(.25, "bandpass", 1200, 300, .3); },
+    slash() { if (soundOn) noise(.09, "highpass", 5000, 2200, .35); },
+    tink() { if (soundOn) tone(2200, 1600, .12, .18, "triangle"); },
+    stop() { if (soundOn) { tone(900, 90, .6, .25, "triangle"); noise(.5, "bandpass", 3000, 200, .2); } },
   };
 
-  // ---------- choreography ----------
+  // ---------- movement helpers ----------
   function walkKeys(dist) {
     const steps = Math.max(1, Math.ceil(Math.abs(dist) / 24)), per = dist / steps, keys = [];
     for (let i = 0; i < steps; i++) keys.push({ pose: i % 2 ? P.WALK_B : P.WALK_A, dur: dist > 0 ? 135 : 150, dx: per, ease: EASE.inOut });
     return keys;
   }
-  function walkBy(f, dist) { if (Math.abs(dist) > 3) f.play(walkKeys(dist)); return f.done(); }
+  function runKeys(dist, face) {
+    const steps = Math.max(1, Math.ceil(Math.abs(dist) / 40)), per = dist / steps, keys = [];
+    for (let i = 0; i < steps; i++) keys.push({ pose: i % 2 ? P.RUN_B : P.RUN_A, dur: 105, dx: per, ease: EASE.lin, face });
+    return keys;
+  }
+  const moveKeys = dist => (dist > 110 ? runKeys(dist) : walkKeys(dist));
+  function walkBy(F, dist) { if (Math.abs(dist) > 3) F.play(moveKeys(dist)); return F.done(); }
 
   async function approach(att, mv) {
     const def = att.opp;
     await Promise.all([att.done(), def.done()]);
-    const need = Math.abs(def.x - att.x) - mv.range;
+    const need = Math.abs(def.x - att.x) - rangeOf(mv, att);
     if (Math.abs(need) < 6) return;
     // if the attacker can't back up (wall), the defender gives ground instead
     const target = clamp(att.x + need * att.f, XMIN, XMAX);
     const moved = (target - att.x) * att.f;
-    const rest = need - moved;
-    await Promise.all([walkBy(att, moved), walkBy(def, rest)]);
+    await Promise.all([walkBy(att, moved), walkBy(def, need - moved)]);
   }
-
+  async function approachSolo(F, mv) {
+    await Promise.all([F.done(), F.opp.done()]);
+    F.face();
+    const need = Math.abs(F.opp.x - F.x) - rangeOf(mv, F);
+    if (Math.abs(need) >= 6) await walkBy(F, need);
+  }
+  async function backOff(att, gap) {
+    await Promise.all([att.done(), att.opp.done()]);
+    const d = Math.abs(att.opp.x - att.x);
+    if (d >= gap) return;
+    const want = gap - d, target = clamp(att.x - att.f * want, XMIN, XMAX), moved = Math.abs(target - att.x);
+    await Promise.all([walkBy(att, -moved), walkBy(att.opp, -(want - moved))]);
+  }
   async function recenter() {
     const off = W / 2 - (A.x + B.x) / 2;
     if (Math.abs(off) < 90) return;
     const s = off * .8;
     await Promise.all([walkBy(A, s * A.f), walkBy(B, s * B.f)]);
   }
+  function release(F) {
+    if (!roundOver && F.hp > 0 && F.hold && !F.busy) F.play([{ pose: P.STANCE, dur: 260 }]);
+  }
+  async function settle() { await Promise.all([A.done(), B.done()]); release(A); release(B); }
+  function snapTo(F, x) {
+    F.x = clamp(x, XMIN, XMAX); F.key = null; F.queue = []; F.hold = false; F.idleT = 0;
+    F.face(); F.pose = { ...P.STANCE }; F.pts = grounded(F.pose, F.x, F.f, F);
+  }
+  const wallX = f => (f > 0 ? W + 30 : -30);
+  const duckKeys = () => [{ pose: P.DUCK, dur: 90, ease: EASE.out }, { pose: P.DUCK, dur: 220 }, { pose: P.STANCE, dur: 240 }];
+  const hopKeys = () => [{ pose: P.SUPER_HOP, dur: 230, ease: EASE.out }, { pose: P.SUPER_HOP, dur: 300 }, { pose: P.LAND, dur: 230, ease: EASE.in }, { pose: P.STANCE, dur: 220 }];
 
+  // ---------- combat ----------
   function blockPose(mv) { return mv.height === "high" ? P.BLOCK_HIGH : P.BLOCK_LOW; }
-  function dodgeKeys(mv, name) {
+  function dodgeKeys(mv, F) {
     if (mv.height === "low") return [{ pose: P.HOP, dur: 150, ease: EASE.out }, { pose: P.STANCE, dur: 200, ease: EASE.in }];
-    if (mv.height === "mid" || name === "flyingKick")
-      return [{ pose: P.LEAN_BACK, dur: 110, dx: name === "flyingKick" ? -44 : -26, ease: EASE.out }, { pose: P.LEAN_BACK, dur: 170 }, { pose: P.STANCE, dur: 240 }];
+    const roomBehind = F.f > 0 ? F.x - XMIN > 110 : XMAX - F.x > 110;
+    if (roomBehind && Math.random() < .3)
+      return [{ pose: P.JUMP_CROUCH, dur: 70, ease: EASE.out }, { pose: P.TUCK_A, dur: 200, dx: -45, ease: EASE.out }, { pose: P.TUCK_B, dur: 200, dx: -35, ease: EASE.in }, { pose: P.LAND, dur: 130 }, { pose: P.STANCE, dur: 220 }];
+    if (mv.height === "mid")
+      return [{ pose: P.LEAN_BACK, dur: 110, dx: -30, ease: EASE.out }, { pose: P.LEAN_BACK, dur: 170 }, { pose: P.STANCE, dur: 240 }];
     const duck = Math.random() < .5;
     return [{ pose: duck ? P.DUCK : P.LEAN_BACK, dur: 95, dx: duck ? -4 : -14, ease: EASE.out }, { pose: duck ? P.DUCK : P.LEAN_BACK, dur: 180 }, { pose: P.STANCE, dur: 240 }];
   }
 
-  function knockdown(def, first, ko) {
-    def.down = true;
+  function knockdown(def, kind, ko, by, winner) {
+    def.down = true; def.dazed = 0;
+    const dir = by ? (Math.sign(by.x - def.x) || def.f) : def.f;
+    const firsts = {
+      air:   { pose: P.KNOCK_AIR, dur: ko ? 520 : 300, dx: ko ? -110 : -70, ease: EASE.out },
+      swept: { pose: P.SWEPT, dur: 220, dx: -14, ease: EASE.out },
+      spin:  { pose: P.SPIN_AIR, dur: 640, dx: -170, ease: EASE.out },
+      blast: { pose: P.KNOCK_AIR, dur: 620, dx: -280, ease: EASE.out },
+    };
     const keys = [
-      first === P.SWEPT
-        ? { pose: P.SWEPT, dur: 220, dx: -14, ease: EASE.out }
-        : { pose: P.KNOCK_AIR, dur: ko ? 520 : 300, dx: ko ? -110 : -70, ease: EASE.out },
-      { pose: P.DOWN, dur: ko ? 340 : 240, dx: ko ? -30 : -24, ease: EASE.in, hold: ko,
-        onEnd: () => { dust(def.pts.hip[0] - def.f * 20, 14); shake(ko ? 8 : 5); SFX.fall(); if (ko) victory(def.opp); } },
+      { ...(firsts[kind] || firsts.air), face: dir, wall: true },
+      { pose: P.DOWN, dur: ko ? 340 : 240, dx: ko ? -30 : -24, ease: EASE.in, keep: true, hold: ko,
+        onEnd: () => { dust(def.pts.hip[0] - def.f * 20, 14); shake(ko ? 8 : 5); SFX.fall(); if (ko) victory(winner || by); } },
     ];
     if (!ko) keys.push(
-      { pose: P.DOWN, dur: 480 },
-      { pose: P.SIT_UP, dur: 280 },
-      { pose: P.KNEEL, dur: 260 },
+      { pose: P.DOWN, dur: 480, keep: true },
+      { pose: P.SIT_UP, dur: 280, keep: true },
+      { pose: P.KNEEL, dur: 260, keep: true, onStart: () => { def.dazed = 1500; } },
       { pose: P.STANCE, dur: 300, onStart: () => { def.down = false; } });
     def.play(keys, true);
   }
 
   function victory(w) {
-    w.play([{ pose: P.STANCE, dur: 300 }, { pose: P.VICTORY, dur: 340, ease: EASE.back, hold: true }]);
+    if (!w) return;
+    w.play([{ pose: P.STANCE, dur: 300 }, { pose: pick([P.VICTORY, P.VICTORY2, P.BOW]), dur: 360, ease: EASE.back, hold: true,
+      onEnd: () => shout(w, pick(QUIPS), 20) }], true);
     banner(`${w.name} takes round ${round}`, 2600, 34, w.color);
   }
 
-  function onHit(att, def, mv, p) {
-    const heavy = !!mv.heavy;
-    def.hp = Math.max(0, def.hp - mv.dmg);
+  // one place where every hit lands
+  function damage(att, def, dmg, o = {}) {
+    if (roundOver || def.hp <= 0) return false;
+    const src = att.owner || att;
+    dmg *= src.ssj > 0 ? 1.5 : 1;
+    def.hp = Math.max(0, def.hp - dmg);
     def.lagDelay = 380;
-    burst(p, att.color, heavy ? 30 : 21, pick(heavy ? WORDS.heavy : WORDS.light), heavy ? "heavy" : "light");
-    spray(p, att.f, heavy ? 16 : 8, def.color, heavy ? 1.3 : 1);
-    hitStop = heavy ? 120 : 65;
+    const heavy = !!o.heavy, p = o.p || chest(def);
+    if (!o.noBurst) burst(p, src.color, heavy ? 30 : 21, o.word || pick(o.blade ? WORDS.blade : heavy ? WORDS.heavy : WORDS.light), heavy ? "heavy" : "light");
+    if (!o.noSpray) spray(p, att.f, heavy ? 16 : 8, def.color, heavy ? 1.3 : 1);
+    hitStop = Math.max(hitStop, heavy ? 120 : 65);
     shake(heavy ? 9 : 4);
+    if (o.blade) SFX.slash();
     SFX.hit(heavy);
+    if (def.weapon && heavy) dropWeapon(def);
+    const by = att;
     if (def.hp <= 0) {
-      att.wins++;
-      slowMoT = 1300;
+      roundOver = true; src.wins++; slowMoT = 1300;
       banner("K.O.", 2300, 110, COL.ink);
-      knockdown(def, mv.height === "low" ? P.SWEPT : P.KNOCK_AIR, true);
-      return;
+      if (o.knock === "none") {
+        def.down = true;
+        def.play([{ pose: P.DOWN, dur: 260, keep: true, hold: true, onEnd: () => victory(src) }], true);
+      } else knockdown(def, o.knock && o.knock !== "twitch" ? o.knock : (o.height === "low" ? "swept" : "air"), true, by, src);
+      return true;
     }
-    if (heavy) knockdown(def, mv.height === "low" ? P.SWEPT : P.KNOCK_AIR, false);
-    else if (mv.height === "mid")
-      def.play([{ pose: P.HIT_BODY, dur: 110, dx: -16, ease: EASE.out }, { pose: P.HIT_BODY, dur: 150 }, { pose: P.STANCE, dur: 240, dx: -4 }], true);
+    const dir = Math.sign(att.x - def.x) || def.f;
+    if (o.knock === "none") return true;
+    if (o.knock === "twitch") {
+      def.play([{ pose: Math.random() < .5 ? P.HIT_HEAD : P.HIT_BODY, dur: 60, ease: EASE.out, keep: true }, { pose: P.STUNNED, dur: 90, keep: true, hold: true }], true);
+    } else if (heavy || o.knock) knockdown(def, o.knock || (o.height === "low" ? "swept" : "air"), false, by);
+    else if (o.height === "mid")
+      def.play([{ pose: P.HIT_BODY, dur: 110, dx: -16, ease: EASE.out, face: dir }, { pose: P.HIT_BODY, dur: 150, keep: true }, { pose: P.STANCE, dur: 240, dx: -4 }], true);
     else
-      def.play([{ pose: P.HIT_HEAD, dur: 100, dx: -18, ease: EASE.out }, { pose: P.STANCE, dur: 260, dx: -6 }], true);
+      def.play([{ pose: P.HIT_HEAD, dur: 100, dx: -18, ease: EASE.out, face: dir }, { pose: P.STANCE, dur: 260, dx: -6 }], true);
+    return true;
   }
 
-  async function attack(att, name) {
-    const mv = MOVES[name], def = att.opp, keys = mv.keys();
+  function wear(F) {
+    if (!F.weapon) return;
+    F.weapon.uses--;
+    if (F.weapon.uses > 0) return;
+    const type = F.weapon.type;
+    if (!WEAPONS[type].thrown) {
+      const b = F.pts.wb || F.pts.h1, t = F.pts.wt || F.pts.h1;
+      for (let i = 0; i < 6; i++) {
+        const u = i / 5;
+        fxs.push({ type: "shard", x: lerp(b[0], t[0], u), y: lerp(b[1], t[1], u), vx: rand(-.15, .15), vy: rand(-.5, -.2), rot: rand(0, 6), vr: rand(-.02, .02), len: rand(7, 14), color: type === "pencil" ? COL.gold : type === "katana" ? COL.ink : COL.wood, age: 0, life: 1800 });
+      }
+      shout(F, "SNAP!", 22); SFX.block();
+    } else shout(F, "Out of stars!", 18);
+    F.weapon = null;
+  }
+  function dropWeapon(F) {
+    if (!F.weapon) return;
+    const h = F.pts.h1;
+    items.push({ kind: "weapon", type: F.weapon.type, uses: F.weapon.uses, x: h[0], y: h[1], vx: -F.f * rand(.08, .2), vy: -.5, rot: rand(0, 6), vr: .018, landed: false, age: 0 });
+    F.weapon = null;
+  }
+
+  function throwDef(att, def) {
+    const d = Math.abs(def.x - att.x);
+    att.play([{ pose: P.THROW_OVER, dur: 300 }, { pose: P.THROW_OVER, dur: 160 }], true);
+    def.down = true;
+    shout(att, "Hup!", 20);
+    def.play([
+      { pose: P.THROWN_A, dur: 320, dx: d + 25, keep: true },
+      { pose: P.THROWN_B, dur: 210, dx: 30, ease: EASE.in, keep: true, onEnd: () => {
+        dust(def.x, 16); shake(9); SFX.fall();
+        damage(att, def, MOVES.throw.dmg, { heavy: true, knock: "none", p: [def.x, GROUND - 14], word: "SLAM" });
+      } },
+      { pose: P.DOWN, dur: 450, keep: true },
+      { pose: P.SIT_UP, dur: 280, keep: true },
+      { pose: P.KNEEL, dur: 260, keep: true },
+      { pose: P.STANCE, dur: 300, onStart: () => { def.down = false; } },
+    ], true);
+  }
+
+  async function attack(att, mv, o = {}) {
+    const def = att.opp, keys = mv.keys();
     const r = Math.random();
-    const out = r < .52 ? "hit" : r < .8 ? "block" : "dodge";
+    let out = o.force || (mv.grab ? (r < .65 ? "hit" : "block") : r < .52 ? "hit" : r < .8 ? "block" : "dodge");
+    if (def.down || def.hold) out = o.force || "hit";
     const sk = keys.find(k => k.strike);
     sk.trail = mv.limb;
+    const isWeapon = mv.limb[0] === "w";
     sk.onStart = () => {
       SFX.whoosh();
       if (out === "block") def.play([{ pose: blockPose(mv), dur: Math.min(90, sk.dur), ease: EASE.out }, { pose: blockPose(mv), dur: 400 }], true);
-      if (out === "dodge") def.play(dodgeKeys(mv, name), true);
+      if (out === "dodge") def.play(dodgeKeys(mv, def), true);
     };
     sk.onEnd = () => {
-      const p = att.pts[mv.limb];
-      if (out === "hit") onHit(att, def, mv, p);
-      else if (out === "block") {
+      const p = att.pts[mv.limb] || att.pts.h1;
+      if (out === "hit") {
+        if (mv.grab) throwDef(att, def);
+        else damage(att, def, mv.dmg * (o.dmgMul || 1), { heavy: mv.heavy || o.heavy, height: mv.height, p, knock: o.knock, word: o.word, blade: isWeapon && att.weapon && att.weapon.type !== "staff" && att.weapon.type !== "hammer" });
+        if (o.onHit) o.onHit(p);
+      } else if (out === "block") {
         def.hp = Math.max(1, def.hp - 1); def.lagDelay = 300;
-        burst(p, COL.ink, 14, pick(WORDS.block), "block");
+        burst(p, COL.ink, 14, mv.grab ? "Nope!" : pick(WORDS.block), "block");
         hitStop = 40; shake(2); SFX.block();
         def.play([{ pose: blockPose(mv), dur: 90, dx: -12, ease: EASE.out }, { pose: blockPose(mv), dur: 90 }, { pose: P.STANCE, dur: 220 }], true);
       } else {
         burst(p, COL.pencil, 0, pick(WORDS.whiff), "whiff");
       }
+      if (isWeapon && out !== "dodge") wear(att);
     };
+    for (const k of keys) if (k.pound) k.onEnd = () => { const t = att.pts.wt || att.pts.h1; groundCrack(t[0]); };
     att.play(keys);
     await att.done();
     await def.done();
     return out;
   }
 
+  // projectiles: shuriken and Getsuga crescents
+  function launch(att, kind, out, dmg, from) {
+    return new Promise(resolve => {
+      projectiles.push({ kind, x: from[0], y: from[1], vx: att.f * (kind === "star" ? .95 : .85), vy: 0, target: att.opp, owner: att, out, dmg, age: 0, resolve });
+    });
+  }
+  async function throwStar(att) {
+    const def = att.opp;
+    const r = Math.random();
+    const out = def.down ? "hit" : r < .55 ? "hit" : r < .8 ? "block" : "dodge";
+    let flight;
+    att.play([
+      { pose: P.STAR_WIND, dur: 150, ease: EASE.out },
+      { pose: P.STAR_THROW, dur: 80, ease: EASE.out, trail: "h1", onEnd: () => { flight = launch(att, "star", out, 6, att.pts.h1); SFX.whoosh(); wear(att); } },
+      { pose: P.STAR_THROW, dur: 120 }]);
+    await att.done();
+    if (flight) await flight;
+    await def.done();
+  }
+
+  // ---------- items: power-up orbs and weapons ----------
+  const SPECIALS = {
+    kamehameha: { name: "Kamehameha", run: kamehameha },
+    domain:     { name: "Domain Expansion", run: domainExpansion },
+    timestop:   { name: "Za Warudo", run: zaWarudo },
+    rasengan:   { name: "Rasengan", run: rasengan },
+    clones:     { name: "Shadow Clone Jutsu", run: shadowClones },
+    saiyan:     { name: "Super Saiyan", run: superSaiyan },
+    gumgum:     { name: "Gum-Gum Pistol", run: gumGum },
+    spiritbomb: { name: "Spirit Bomb", run: spiritBomb },
+    teleport:   { name: "Instant Transmission", run: instantTransmission },
+    blackflash: { name: "Black Flash", run: blackFlash },
+    getsuga:    { name: "Getsuga Tensho", run: getsuga },
+  };
+  let deck = [], forcedPower = "";
+  function nextSpecial() {
+    if (forcedPower) return forcedPower;
+    if (!deck.length) deck = Object.keys(SPECIALS).sort(() => Math.random() - .5);
+    return deck.pop();
+  }
+  function spawnItem(kind) {
+    kind = kind || (Math.random() < .55 ? "orb" : "weapon");
+    const x = rand(130, W - 130);
+    if (kind === "orb") items.push({ kind, x, y: -30, vx: 0, vy: .09, rot: 0, vr: 0, landed: false, age: 0 });
+    else items.push({ kind, type: pick(Object.keys(WEAPONS)), x, y: -40, vx: 0, vy: 0, rot: rand(0, 6), vr: .012, landed: false, age: 0 });
+  }
+  function beyond(F, x) {
+    const o = F.opp;
+    return (x - F.x) * (o.x - F.x) > 0 && Math.abs(x - F.x) > Math.abs(o.x - F.x) - 24;
+  }
+  function grabberFor(it) {
+    const cands = [A, B].filter(F => F.hp > 0 && !F.down && !beyond(F, it.x) && !(it.kind === "orb" && F.special));
+    cands.sort((a, b) => Math.abs(a.x - it.x) - Math.abs(b.x - it.x));
+    return cands[0];
+  }
+  async function goGrab(F, it) {
+    it.claimed = true;
+    await Promise.all([F.done(), F.opp.done()]);
+    const dir = Math.sign(it.x - F.x) || F.f;
+    const fwd = (it.x - dir * 14 - F.x) * dir;
+    const keys = Math.abs(fwd) > 6 ? (fwd > 90 ? runKeys(fwd, dir) : walkKeys(fwd).map(k => ({ ...k, face: dir }))) : [];
+    keys.push({ pose: P.PICKUP, dur: 170, ease: EASE.out, face: dir }, { pose: P.PICKUP, dur: 90, keep: true, onEnd: () => collect(F, it) });
+    if (Math.random() < .5) shout(F.opp, pick(["Hey!", "That's mine!", "Nani?!"]), 18);
+    F.play(keys);
+    await F.done();
+    if (F.weapon && !WEAPONS[F.weapon.type].thrown && !F.busy) { F.play([{ pose: P.TWIRL, dur: 380, ease: EASE.out }]); await F.done(); }
+  }
+  function collect(F, it) {
+    if (!items.includes(it)) return;
+    items = items.filter(i => i !== it);
+    ring(it.x, it.kind === "orb" ? it.y : GROUND - 20, 6, 50, 400, it.kind === "orb" ? COL.gold : F.color, 2.5);
+    if (it.kind === "orb") {
+      F.special = nextSpecial();
+      shout(F, `${SPECIALS[F.special].name}!`, 20);
+      SFX.charge(.4);
+    } else {
+      F.weapon = { type: it.type, uses: it.uses || WEAPONS[it.type].uses };
+      shout(F, `${WEAPONS[it.type].name}!`, 20);
+      SFX.tink();
+    }
+  }
+  async function taunt(F) {
+    await Promise.all([F.done(), F.opp.done()]);
+    shout(F, pick(["Come on!", "Is that all?", "Bring it.", "Hmph.", "You're wide open."]), 20);
+    F.play([{ pose: P.TAUNT_A, dur: 200 }, { pose: P.TAUNT_B, dur: 160 }, { pose: P.TAUNT_A, dur: 160 }, { pose: P.TAUNT_B, dur: 160 }, { pose: P.TAUNT_A, dur: 160 }]);
+    await F.done();
+  }
+
+  // ---------- anime specials ----------
+  const handsMid = F => [(F.pts.h1[0] + F.pts.h2[0]) / 2, (F.pts.h1[1] + F.pts.h2[1]) / 2];
+  function makeBeam(F) {
+    const m = handsMid(F), b = { owner: F, x0: m[0], y: m[1], end: m[0], w: 0, dir: F.f };
+    world.beams.push(b); tween(b, "w", 21, 160, EASE.out);
+    return b;
+  }
+
+  async function kamehameha(att) {
+    const def = att.opp;
+    await backOff(att, 230);
+    att.play([{ pose: P.KAME_CHARGE, dur: 320, ease: EASE.out, hold: true }]);
+    att.charge = { r: 0 }; tween(att.charge, "r", 16, 1500);
+    SFX.charge(1.6);
+    for (const s of ["Ka...", "me...", "ha...", "me..."]) { shout(att, s, 22); await wait(380); }
+    const clash = !def.down && def.hp > 0 && Math.random() < .4;
+    if (clash) {
+      def.play([{ pose: P.KAME_CHARGE, dur: 260, ease: EASE.out, hold: true }], true);
+      def.charge = { r: 0 }; tween(def.charge, "r", 14, 520);
+      shout(def, "Kamehame...", 22);
+      await wait(600);
+    } else await wait(150);
+    att.play([{ pose: P.KAME_FIRE, dur: 110, ease: EASE.out, hold: true }], true);
+    shout(att, "HA!!", 34);
+    if (clash) { def.play([{ pose: P.KAME_FIRE, dur: 110, ease: EASE.out, hold: true }], true); shout(def, "HA!!", 34); }
+    await wait(120);
+    const ba = makeBeam(att); att.charge = null;
+    let bd = null;
+    if (clash) { bd = makeBeam(def); def.charge = null; ba.y = bd.y = (ba.y + bd.y) / 2; }
+    SFX.beam(); shake(5); world.rumble = 900;
+    let dodged = false;
+    if (clash) {
+      const mid = (ba.x0 + bd.x0) / 2;
+      await Promise.all([tween(ba, "end", mid, 240, EASE.lin), tween(bd, "end", mid, 240, EASE.lin)]);
+      world.clash = { b: ba };
+      banner("Beam struggle!", 1300, 36, COL.ink);
+      world.rumble = 2400;
+      for (let i = 0; i < 6; i++) {
+        const to = mid + rand(-80, 80);
+        await Promise.all([tween(ba, "end", to, 300), tween(bd, "end", to, 300)]);
+        if (i === 2) { shout(att, "HAAAAA!", 24); shout(def, "HAAAAA!", 24); SFX.beam(); }
+      }
+      const pa = att.hp + (att.ssj > 0 ? 60 : 0), pd = def.hp + (def.ssj > 0 ? 60 : 0);
+      const winner = Math.random() < pa / (pa + pd) ? att : def, loser = winner.opp;
+      const wb = winner === att ? ba : bd, lb = winner === att ? bd : ba;
+      await Promise.all([tween(wb, "end", loser.x, 380, EASE.in), tween(lb, "end", lb.x0, 380, EASE.in)]);
+      world.clash = null;
+      tween(lb, "w", 0, 200);
+      SFX.boom();
+      damage(winner, loser, 28, { heavy: true, knock: "blast", p: [loser.x, wb.y], word: "KA-BOOM" });
+      await tween(wb, "end", wallX(winner.f), 260, EASE.lin);
+    } else {
+      const hitX = def.x - att.f * 12;
+      dodged = !def.down && Math.random() < .25;
+      if (dodged) {
+        def.play(hopKeys(), true);
+        await wait(170);
+        await tween(ba, "end", wallX(att.f), Math.abs(wallX(att.f) - ba.x0) / 2.2, EASE.lin);
+        burst([clamp(wallX(att.f), 24, W - 24), ba.y], att.color, 34, "BOOM", "heavy"); shake(7); SFX.boom();
+        shout(def, "Too slow!", 20);
+      } else {
+        await tween(ba, "end", hitX, Math.abs(hitX - ba.x0) / 1.4, EASE.lin);
+        SFX.boom();
+        damage(att, def, 24, { heavy: true, knock: "blast", p: [hitX, ba.y], word: "KA-BOOM" });
+        await tween(ba, "end", wallX(att.f), 240, EASE.lin);
+      }
+    }
+    await wait(dodged ? 80 : 420);
+    await Promise.all(world.beams.map(b => tween(b, "w", 0, 260)));
+    world.beams = [];
+    await wait(60);
+    release(att); release(def);
+  }
+
+  async function domainExpansion(att) {
+    const def = att.opp;
+    await Promise.all([att.done(), def.done()]);
+    att.play([{ pose: P.HAND_SIGN, dur: 280, ease: EASE.out, hold: true }]);
+    await wait(300);
+    shout(att, "Domain Expansion...", 22);
+    banner("DOMAIN EXPANSION", 1500, 52, COL.ink);
+    await wait(900);
+    const kind = Math.random() < .5 ? "shrine" : "void";
+    const name = kind === "shrine" ? pick(["Malevolent Margin", "Shrine of Scribbles"]) : pick(["Infinite Notebook", "Unlimited Ruled Void"]);
+    const dom = world.domain = { owner: att, kind, r: 0, fade: 1, x: att.pts.hip[0], y: att.pts.neck[1], seed: Math.random() * 99 };
+    SFX.stop(); shake(5);
+    await tween(dom, "r", 980, 650, EASE.in);
+    banner(name, 1700, 46, COL.paper, COL.ink);
+    if (def.hp > 0) def.play([{ pose: P.STUNNED, dur: 260, ease: EASE.out, hold: true }], true);
+    def.dazed = 2600;
+    await wait(700);
+    if (kind === "shrine") {
+      for (let i = 0; i < 16 && !roundOver; i++) {
+        await wait(rand(60, 130));
+        const c = chest(def), a = rand(0, Math.PI), l = rand(40, 70);
+        fxs.push({ type: "slash", x1: c[0] - Math.cos(a) * l + rand(-14, 14), y1: c[1] - Math.sin(a) * l + rand(-30, 30), x2: c[0] + Math.cos(a) * l, y2: c[1] + Math.sin(a) * l, age: 0, life: 260, color: COL.paper });
+        SFX.slash();
+        damage(att, def, 1.7, { knock: "twitch", noBurst: true, p: c });
+      }
+      if (!roundOver) {
+        await wait(220);
+        const c = chest(def);
+        fxs.push({ type: "slash", x1: c[0] - 60, y1: c[1] - 60, x2: c[0] + 60, y2: c[1] + 60, age: 0, life: 420, color: COL.paper, w: 5 });
+        fxs.push({ type: "slash", x1: c[0] + 60, y1: c[1] - 60, x2: c[0] - 60, y2: c[1] + 60, age: 0, life: 420, color: COL.paper, w: 5 });
+        damage(att, def, 8, { heavy: true, knock: "air", word: "DISMANTLE" });
+      }
+    } else {
+      shout(def, "?!?!", 26);
+      await wait(700);
+      if (!roundOver) {
+        release(att);
+        await approachSolo(att, MOVES.uppercut);
+        await attack(att, MOVES.uppercut, { force: "hit", dmgMul: 2 });
+      }
+    }
+    await Promise.all([att.done(), def.done()]);
+    await tween(dom, "fade", 0, 450);
+    world.domain = null;
+    def.dazed = 0;
+    release(att); release(def);
+  }
+
+  async function zaWarudo(att) {
+    const def = att.opp;
+    await Promise.all([att.done(), def.done()]);
+    att.play([{ pose: P.TS_POSE, dur: 260, ease: EASE.out, hold: true }]);
+    shout(att, "ZA WARUDO!", 30);
+    await wait(500);
+    const ts = world.ts = { owner: att, x: att.pts.neck[0], y: att.pts.neck[1], r: 0, gray: 0 };
+    world.frozen = [def]; SFX.stop();
+    await tween(ts, "r", 980, 520, EASE.in);
+    ts.r = 0; ts.gray = 1;
+    banner("Time has stopped", 1300, 36, COL.ink);
+    await wait(500);
+    release(att);
+    await att.done();
+    att.face();
+    const need = Math.abs(def.x - att.x) - rangeOf(MOVES.jab, att);
+    if (Math.abs(need) > 6) { att.play(moveKeys(need)); await att.done(); }
+    const word = att === A ? "ORA" : "MUDA";
+    for (let i = 0; i < 14; i++) {
+      const right = i % 2 === 0, limb = right ? "h1" : "h2";
+      att.play([
+        { pose: right ? P.JAB : P.CROSS, dur: 45, ease: EASE.out, trail: limb, onEnd: () => {
+          const p = att.pts[limb];
+          burst([p[0] + rand(-6, 6), p[1] + rand(-18, 18)], att.color, 15, "", "light", { pending: true, age: 130 });
+          if (i % 2 === 0) shout(att, word, 16 + i);
+          SFX.hit(false);
+        } },
+        { pose: P.JAB_WIND, dur: 35 }], false, false);
+      await att.done();
+    }
+    shout(att, `${word} ${word}!!`, 32);
+    att.play([{ pose: P.TS_POSE, dur: 220, ease: EASE.out, hold: true }]);
+    await wait(500);
+    shout(att, "Time resumes.", 20);
+    ts.gray = 0; ts.r = 980; ts.out = true;
+    await tween(ts, "r", 0, 320, EASE.out);
+    world.ts = null; world.frozen = [];
+    for (const b of bursts) b.pending = false;
+    damage(att, def, 26, { heavy: true, knock: "air", noBurst: true });
+    await Promise.all([att.done(), def.done()]);
+    release(att);
+  }
+
+  async function rasengan(att) {
+    const def = att.opp;
+    await backOff(att, 160);
+    att.play([{ pose: P.RASEN_HOLD, dur: 280, ease: EASE.out, hold: true }]);
+    att.orb = { r: 0 }; tween(att.orb, "r", 13, 800);
+    shout(att, "Rasen...", 22); SFX.charge(.9);
+    await wait(950);
+    const mv = MOVES.rasenStrike;
+    const need = Math.abs(def.x - att.x) - rangeOf(mv, att);
+    shout(att, "...GAN!!", 30);
+    if (Math.abs(need) > 6) { att.play(need > 0 ? runKeys(need) : walkKeys(need), true, false); await att.done(); }
+    else release(att);
+    const out = def.down ? "hit" : Math.random() < .85 ? "hit" : "dodge";
+    await attack(att, mv, { force: out, knock: "spin", word: "SWOOSH", onHit: p => {
+      att.orb = null;
+      for (let i = 0; i < 3; i++) ring(p[0], p[1], 6, 70 + i * 25, 420 + i * 80, att.color, 3 - i * .6);
+    } });
+    att.orb = null;
+  }
+
+  async function shadowClones(att) {
+    const def = att.opp;
+    await Promise.all([att.done(), def.done()]);
+    att.play([{ pose: P.HAND_SIGN, dur: 240, ease: EASE.out, hold: true }]);
+    shout(att, "Shadow Clone Jutsu!", 24);
+    await wait(520);
+    const dir = Math.sign(def.x - att.x) || att.f;
+    const behind = def.x + dir * 100;
+    const spots = [att.x - dir * 60, att.x - dir * 120, behind > XMIN + 10 && behind < XMAX - 10 ? behind : att.x - dir * 180];
+    const clones = spots.map(x => {
+      const c = new Fighter(att.name, att.color, att.back, att.headband);
+      c.reset(clamp(x, XMIN, XMAX), dir); c.opp = def; c.ghost = true; c.owner = att; c.ssj = att.ssj; c.face();
+      c.pts = grounded(c.pose, c.x, c.f, c);
+      return c;
+    });
+    clones.forEach(c => poof(c.x, GROUND - 40));
+    extras.push(...clones);
+    await wait(420);
+    release(att);
+    const names = ["jab", "midKick", "cross", "highKick"];
+    for (let i = 0; i < clones.length && !roundOver; i++) {
+      const c = clones[i], mv = MOVES[names[i % names.length]];
+      await approachSolo(c, mv);
+      await attack(c, mv, { force: "hit", dmgMul: .7 });
+    }
+    if (!roundOver) { await approach(att, MOVES.uppercut); await attack(att, MOVES.uppercut, { force: "hit" }); }
+    clones.forEach(c => poof(c.x, c.pts.neck[1] + 10));
+    extras = extras.filter(e => !clones.includes(e));
+  }
+
+  async function superSaiyan(att) {
+    const def = att.opp;
+    await Promise.all([att.done(), def.done()]);
+    const keys = [{ pose: P.POWER_UP, dur: 300, ease: EASE.out }];
+    for (let i = 0; i < 8; i++) keys.push({ pose: i % 2 ? P.POWER_UP : P.POWER_UP2, dur: 110 });
+    keys.push({ pose: P.POWER_UP, dur: 200, hold: true });
+    att.play(keys);
+    shout(att, "HAAAAAAA!!", 30); world.rumble = 1400; SFX.charge(1.2);
+    for (let i = 0; i < 16; i++) fxs.push({ type: "rock", x: att.x + rand(-90, 90), y: GROUND - rand(0, 4), vy: -rand(.03, .09), s: rand(2, 6), age: -rand(0, 700), life: 1500, rot: rand(0, 6) });
+    await wait(1100);
+    att.ssj = 14000;
+    world.flash = { age: 0, life: 260, color: COL.gold };
+    ring(att.pts.hip[0], att.pts.neck[1], 10, 180, 500, COL.gold, 4);
+    banner("SUPER SAIYAN!", 1400, 50, COL.gold);
+    shake(8); SFX.boom();
+    await wait(450);
+    shout(def, "It's over 9000?!", 20);
+    await wait(500);
+    release(att);
+  }
+
+  async function gumGum(att) {
+    const def = att.opp;
+    await backOff(att, 230);
+    att.play([{ pose: P.GUM_WIND, dur: 380, ease: EASE.out, hold: true }]);
+    shout(att, "Gum-Gum...", 24);
+    await wait(560);
+    const d = Math.abs(def.x - att.x);
+    const sx = Math.sin(18 * D) * LEN.torso * .9;
+    const scale = clamp((d - DEPTH.high - sx) / (LEN.ua + LEN.fa), 1, 7);
+    const hit = def.down || Math.random() < .85;
+    shout(att, "PISTOL!!", 30);
+    if (!hit) def.play(duckKeys(), true);
+    att.play([
+      { pose: P.JAB, dur: 150, ease: EASE.out, trail: "h1", onEnd: () => {
+        if (hit) damage(att, def, 14, { heavy: true, knock: "air", p: att.pts.h1, word: "BOING" });
+        else burst(att.pts.h1, COL.pencil, 0, "whiff", "whiff");
+      } },
+      { pose: P.JAB, dur: 140, hold: true }], true);
+    await tween(att, "armScale", scale, 150, EASE.out);
+    await wait(140);
+    await tween(att, "armScale", 1, 300, EASE.back);
+    att.armScale = 1;
+    release(att);
+  }
+
+  async function spiritBomb(att) {
+    const def = att.opp;
+    await Promise.all([att.done(), def.done()]);
+    att.play([{ pose: P.ARMS_UP, dur: 420, ease: EASE.out, hold: true }]);
+    shout(att, "Lend me your energy!", 20);
+    const ball = { owner: att, x: att.pts.head[0], y: att.pts.head[1] - 40, r: 0, charging: true, fly: null };
+    world.bombs.push(ball);
+    tween(ball, "r", 56, 2300); SFX.charge(2.3);
+    await wait(2400);
+    shout(att, "SPIRIT BOMB!", 30);
+    ball.charging = false;
+    att.play([{ pose: P.THROW_BOMB, dur: 240, ease: EASE.out, hold: true }], true);
+    await wait(200);
+    const to = [def.pts.hip[0], (def.pts.hip[1] + def.pts.neck[1]) / 2];
+    ball.fly = { from: [ball.x, ball.y], to, t: 0 };
+    if (!def.down && Math.random() < .5) { def.play([{ pose: P.LEAN_BACK, dur: 300, dx: -20 }, { pose: P.LEAN_BACK, dur: 300 }], true); shout(def, "No no no no", 18); }
+    await tween(ball.fly, "t", 1, 760, EASE.in);
+    world.bombs = world.bombs.filter(b => b !== ball);
+    const p = [ball.x, ball.y];
+    ring(p[0], p[1], 20, 300, 700, att.color, 5); ring(p[0], p[1], 10, 200, 550, COL.gold, 3);
+    world.flash = { age: 0, life: 220, color: COL.paper };
+    spray(p, att.f, 30, def.color, 1.6); dust(p[0], 24, GROUND, 80, 1.6);
+    SFX.boom(); shake(14);
+    damage(att, def, 26, { heavy: true, knock: "blast", p, word: "KABOOOM" });
+    await wait(500);
+    release(att);
+  }
+
+  async function instantTransmission(att) {
+    const def = att.opp;
+    await Promise.all([att.done(), def.done()]);
+    att.play([{ pose: P.IT_POSE, dur: 220, ease: EASE.out, hold: true }]);
+    shout(att, "Instant Transmission", 20);
+    await wait(560);
+    fxs.push({ type: "streak", x: att.x, y0: att.pts.head[1] - 20, y1: GROUND, age: 0, life: 320, color: att.color });
+    att.alpha = 0; SFX.whoosh();
+    await wait(280);
+    const dir = Math.sign(def.x - att.x) || att.f;
+    let nx = def.x + dir * 80;
+    if (nx < XMIN + 4 || nx > XMAX - 4) nx = def.x - dir * 80;
+    snapTo(att, nx);
+    fxs.push({ type: "streak", x: att.x, y0: att.pts.head[1] - 20, y1: GROUND, age: 0, life: 320, color: att.color });
+    att.alpha = 1;
+    shout(att, "Behind you.", 18);
+    await wait(150);
+    await approachSolo(att, MOVES.spinKick);
+    await attack(att, MOVES.spinKick, { force: "hit", dmgMul: 1.4 });
+  }
+
+  async function blackFlash(att) {
+    const mv = MOVES.cross;
+    await approach(att, mv);
+    await attack(att, mv, { force: "hit", dmgMul: 2.4, heavy: true, word: " ", onHit: p => {
+      fxs.push({ type: "bolt", x: p[0], y: p[1], age: 0, life: 560, seed: 0 });
+      world.flash = { age: 0, life: 150, invert: true };
+      banner("BLACK FLASH", 1300, 56, COL.ink);
+      hitStop = 300; shake(12);
+    } });
+  }
+
+  async function getsuga(att) {
+    const def = att.opp;
+    await backOff(att, 200);
+    const sword = att.weapon && att.weapon.type === "katana";
+    att.play([{ pose: P.KAT_WIND, dur: 320, ease: EASE.out, hold: true }]);
+    shout(att, "Getsuga...", 22);
+    await wait(650);
+    shout(att, "TENSHO!!", 30);
+    const out = def.down ? "hit" : Math.random() < .78 ? "hit" : "dodge";
+    let flight;
+    att.play([
+      { pose: P.KAT_SLASH, dur: 110, ease: EASE.out, trail: sword ? "wt" : "h1", onEnd: () => {
+        flight = launch(att, "crescent", out, 18, [att.pts.hip[0] + att.f * 40, GROUND - 62]);
+        SFX.slash(); shake(4);
+      } },
+      { pose: P.KAT_SLASH, dur: 220 }], true);
+    await att.done();
+    if (flight) await flight;
+    await def.done();
+  }
+
+  // ---------- round flow ----------
   function placeForRound() {
     A.reset(130, 1); B.reset(W - 130, -1);
-    bursts = []; drops = []; stains = []; dusts = []; banners = [];
+    bursts = []; drops = []; stains = []; dusts = []; banners = []; fxs = []; items = []; projectiles = []; extras = [];
+    Object.assign(world, { tweens: [], frozen: [], domain: null, ts: null, beams: [], bombs: [], clash: null, flash: null, rumble: 0, fighting: false });
+    roundOver = false;
   }
 
   async function fightLoop(gen) {
-    const live = () => gen === G;
-    while (live()) {
+    while (gen === G) {
       placeForRound();
       banner(`Round ${round}`, 1300, 64, COL.ink);
       await Promise.all([walkBy(A, 120), walkBy(B, 120), wait(1300)]);
       banner("Fight!", 800, 80, COL.red);
       await wait(450);
+      world.fighting = true; world.spawnT = rand(1800, 3200);
       let last = null;
-      while (A.hp > 0 && B.hp > 0) {
-        await wait(rand(180, 600));
+      while (!roundOver) {
+        await wait(rand(150, 520));
+        if (roundOver) break;
+        await settle();
         await recenter();
-        // trade initiative most of the time; the fighter who is behind gets a little more aggression
-        let att = last && Math.random() < .6 ? last.opp : (Math.random() < .5 ? A : B);
-        if (att.hp > att.opp.hp + 25 && Math.random() < .35) att = att.opp;
-        last = att;
-        const combo = pick(COMBOS);
-        for (const name of combo) {
-          await approach(att, MOVES[name]);
-          const out = await attack(att, name);
-          if (att.opp.hp <= 0 || out === "dodge" || MOVES[name].heavy && out === "hit" || out === "block" && Math.random() < .5) break;
+        const it = items.find(i => i.landed && !i.claimed);
+        if (it && Math.random() < .85) {
+          const g = grabberFor(it);
+          if (g) { await goGrab(g, it); continue; }
         }
-        if (A.hp <= 0 || B.hp <= 0) break;
-        if (Math.random() < .3) {
-          const def = att.opp, name = pick(["jab", "cross", "midKick", "jab"]);
-          await approach(def, MOVES[name]);
-          await attack(def, name);
+        let att = last && Math.random() < .6 ? last.opp : (Math.random() < .5 ? A : B);
+        if (att.hp > att.opp.hp + 35 && Math.random() < .35) att = att.opp;
+        last = att;
+        if (att.special && Math.random() < .85) {
+          const s = att.special; att.special = null;
+          await SPECIALS[s].run(att);
+          await settle();
+          continue;
+        }
+        if (Math.random() < .06) { await taunt(att); continue; }
+        if (att.weapon && Math.random() < .8) {
+          const type = att.weapon.type;
+          if (WEAPONS[type].thrown) await throwStar(att);
+          else {
+            for (const n of pick(WCOMBOS[type])) {
+              if (!att.weapon || att.weapon.type !== type) break;
+              const mv = WMOVES[type][n];
+              await approach(att, mv);
+              const out = await attack(att, mv);
+              if (roundOver || out === "dodge" || mv.heavy && out === "hit" || out === "block" && Math.random() < .5) break;
+            }
+          }
+        } else {
+          for (const name of pick(COMBOS)) {
+            const mv = MOVES[name];
+            await approach(att, mv);
+            const out = await attack(att, mv);
+            if (roundOver || out === "dodge" || mv.heavy && out === "hit" || mv.grab || out === "block" && Math.random() < .5) break;
+          }
+        }
+        if (roundOver) break;
+        if (Math.random() < .28) {
+          const def = att.opp, mv = MOVES[pick(["jab", "cross", "midKick", "jab", "elbow"])];
+          await approach(def, mv);
+          await attack(def, mv);
           last = def;
         }
       }
-      await wait(3600);
+      world.fighting = false;
+      await wait(4000);
       round++;
     }
   }
@@ -585,6 +1393,7 @@
   function restart(resetScore) {
     G++;
     sim.waits = [];
+    world.tweens = [];
     if (resetScore) { A.wins = 0; B.wins = 0; round = 1; }
     hitStop = 0; slowMoT = 0; shakeAmp = 0;
     fightLoop(G);
@@ -616,7 +1425,6 @@
       g.fillStyle = COL.desk; g.beginPath(); g.arc(28, y, 9, 0, Math.PI * 2); g.fill();
       g.strokeStyle = "rgba(29,36,51,.18)"; g.lineWidth = 1; g.stroke();
     }
-    // pencilled ground line
     g.strokeStyle = COL.pencil; g.globalAlpha = .6; g.lineWidth = 1.7; g.lineCap = "round";
     g.beginPath();
     for (let x = 74; x <= W - 10; x += 12) g.lineTo(x, GROUND + 1.5 + Math.sin(x * .071) * .7 + Math.sin(x * .23) * .35);
@@ -627,41 +1435,179 @@
     return c;
   }
 
+  const strokeLine = (...pts) => { ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]); ctx.stroke(); };
+  function starPath(x, y, r1, r2, n, rot = 0, seed = 0) {
+    ctx.beginPath();
+    for (let i = 0; i < n * 2; i++) {
+      const a = rot + (i / (n * 2)) * Math.PI * 2, r = (i % 2 ? r2 : r1) * (seed ? .8 + hash(seed + i) * .4 : 1);
+      ctx.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+    }
+    ctx.closePath();
+  }
+
+  function drawWeapon(type, b, t) {
+    const dx = t[0] - b[0], dy = t[1] - b[1], L = Math.hypot(dx, dy) || 1, ux = dx / L, uy = dy / L, nx = -uy, ny = ux;
+    const at = d => [b[0] + ux * d, b[1] + uy * d];
+    ctx.lineCap = "round"; ctx.lineJoin = "round";
+    if (type === "katana") {
+      const g = at(13);
+      ctx.strokeStyle = COL.ink; ctx.lineWidth = 4.5; strokeLine(b, g);
+      ctx.lineWidth = 3; strokeLine([g[0] + nx * 6, g[1] + ny * 6], [g[0] - nx * 6, g[1] - ny * 6]);
+      const m = at((L + 13) / 2);
+      ctx.lineWidth = 3.2; ctx.beginPath(); ctx.moveTo(g[0], g[1]); ctx.quadraticCurveTo(m[0] + nx * 4, m[1] + ny * 4, t[0], t[1]); ctx.stroke();
+      ctx.strokeStyle = COL.paper; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(g[0] + nx, g[1] + ny); ctx.quadraticCurveTo(m[0] + nx * 4.5, m[1] + ny * 4.5, t[0] - ux * 4, t[1] - uy * 4); ctx.stroke();
+    } else if (type === "staff") {
+      ctx.strokeStyle = COL.ink; ctx.lineWidth = 6.5; strokeLine(b, t);
+      ctx.strokeStyle = COL.wood; ctx.lineWidth = 4; strokeLine(at(2), at(L - 2));
+      ctx.strokeStyle = COL.ink; ctx.lineWidth = 2;
+      for (const d of [8, L - 8]) { const p = at(d); strokeLine([p[0] + nx * 3.5, p[1] + ny * 3.5], [p[0] - nx * 3.5, p[1] - ny * 3.5]); }
+    } else if (type === "hammer") {
+      ctx.strokeStyle = COL.ink; ctx.lineWidth = 5.5; strokeLine(b, t);
+      ctx.strokeStyle = COL.wood; ctx.lineWidth = 3; strokeLine(at(1.5), at(L - 2));
+      const c = t, hw = 14, hd = 8;
+      ctx.beginPath();
+      ctx.moveTo(c[0] + nx * hw - ux * hd, c[1] + ny * hw - uy * hd); ctx.lineTo(c[0] + nx * hw + ux * hd, c[1] + ny * hw + uy * hd);
+      ctx.lineTo(c[0] - nx * hw + ux * hd, c[1] - ny * hw + uy * hd); ctx.lineTo(c[0] - nx * hw - ux * hd, c[1] - ny * hw - uy * hd);
+      ctx.closePath(); ctx.fillStyle = COL.ink; ctx.fill();
+      ctx.strokeStyle = COL.paper; ctx.lineWidth = 1; strokeLine([c[0] + nx * (hw - 3) + ux * (hd - 3), c[1] + ny * (hw - 3) + uy * (hd - 3)], [c[0] - nx * (hw - 3) + ux * (hd - 3), c[1] - ny * (hw - 3) + uy * (hd - 3)]);
+    } else if (type === "pencil") {
+      const c = at(L - 13);
+      ctx.strokeStyle = COL.ink; ctx.lineWidth = 9; strokeLine(b, c);
+      ctx.strokeStyle = COL.gold; ctx.lineWidth = 6; strokeLine(at(8), c);
+      ctx.strokeStyle = COL.pink; strokeLine(b, at(6));
+      ctx.strokeStyle = COL.pencil; ctx.lineWidth = 2; strokeLine([b[0] + ux * 7 + nx * 4, b[1] + uy * 7 + ny * 4], [b[0] + ux * 7 - nx * 4, b[1] + uy * 7 - ny * 4]);
+      ctx.beginPath(); ctx.moveTo(c[0] + nx * 4.5, c[1] + ny * 4.5); ctx.lineTo(t[0], t[1]); ctx.lineTo(c[0] - nx * 4.5, c[1] - ny * 4.5); ctx.closePath();
+      ctx.fillStyle = "#ead6b4"; ctx.fill(); ctx.strokeStyle = COL.ink; ctx.lineWidth = 1.5; ctx.stroke();
+      const g = at(L - 5);
+      ctx.beginPath(); ctx.moveTo(g[0] + nx * 1.8, g[1] + ny * 1.8); ctx.lineTo(t[0], t[1]); ctx.lineTo(g[0] - nx * 1.8, g[1] - ny * 1.8); ctx.closePath();
+      ctx.fillStyle = COL.ink; ctx.fill();
+    }
+  }
+  function drawShuriken(x, y, r, rot) {
+    starPath(x, y, r, r * .32, 4, rot);
+    ctx.fillStyle = COL.ink; ctx.fill();
+    ctx.fillStyle = COL.paper; ctx.beginPath(); ctx.arc(x, y, r * .2, 0, Math.PI * 2); ctx.fill();
+  }
+
   let boilFrame = 0;
   function jit(i, seed) {
     if (reducedMotion) return [0, 0];
     return [(hash(i * 13.7 + boilFrame * 7.3 + seed) - .5) * 1.5, (hash(i * 5.1 + boilFrame * 3.9 + seed + 50) - .5) * 1.5];
   }
+  function drawAura(F, p) {
+    const t = sim.time, c = [(p.hip[0] + p.neck[0]) / 2, (p.hip[1] + p.neck[1]) / 2 - 6];
+    for (let layer = 0; layer < 2; layer++) {
+      ctx.beginPath();
+      const n = 22;
+      for (let i = 0; i <= n; i++) {
+        const a = (i / n) * Math.PI * 2, s = Math.sin(a), co = Math.cos(a);
+        const flick = hash(i * 3.1 + Math.floor(t / 70) * 1.7 + layer * 9);
+        const up = s < 0 ? -s * (22 + flick * 30) : 0;
+        const rx = (38 + layer * 10) * (1 + flick * .12), ry = (62 + layer * 12);
+        ctx.lineTo(c[0] + co * rx, c[1] + s * ry - up);
+      }
+      ctx.closePath();
+      ctx.fillStyle = COL.gold; ctx.globalAlpha = (layer ? .1 : .16) * F.alpha; ctx.fill();
+      ctx.strokeStyle = COL.gold; ctx.globalAlpha = (layer ? .35 : .6) * F.alpha; ctx.lineWidth = layer ? 1.4 : 2; ctx.stroke();
+    }
+    ctx.globalAlpha = F.alpha;
+    if (hash(Math.floor(t / 90)) > .55) {
+      ctx.strokeStyle = COL.gold; ctx.lineWidth = 1.6;
+      let x = c[0] + rand(-30, 30), y = c[1] - 50; ctx.beginPath(); ctx.moveTo(x, y);
+      for (let i = 0; i < 5; i++) { x += rand(-10, 10); y += rand(12, 22); ctx.lineTo(x, y); }
+      ctx.stroke();
+    }
+  }
   function drawFighter(F, seed) {
     const raw = F.pts, p = {};
-    JOINTS.concat(["sh", "head"]).forEach((k, i) => { const j = jit(i, seed); p[k] = [raw[k][0] + j[0], raw[k][1] + j[1]]; });
+    const keys = JOINTS.concat(["sh", "head", "wb", "wt"]);
+    keys.forEach((k, i) => { if (raw[k]) { const j = jit(i, seed); p[k] = [raw[k][0] + j[0], raw[k][1] + j[1]]; } });
+    const alpha = F.alpha * (F.ghost ? .5 : 1);
+    if (alpha <= .01) return;
     // shadow
     const lift = GROUND - Math.max(raw.f1[1], raw.f2[1], raw.hip[1]);
     const sw = clamp(34 - lift * .18, 12, 34);
+    ctx.globalAlpha = alpha;
     ctx.fillStyle = "rgba(29,36,51,.12)";
     ctx.beginPath(); ctx.ellipse(raw.hip[0], GROUND + 3, sw, 4, 0, 0, Math.PI * 2); ctx.fill();
+    if (F.ssj > 0) drawAura(F, p);
 
-    const line = (...pts) => { ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]); ctx.stroke(); };
+    const dark = !!world.domain;
     ctx.lineCap = "round"; ctx.lineJoin = "round";
-    ctx.strokeStyle = F.back; ctx.lineWidth = 5;
-    line(p.sh, p.e2, p.h2); line(p.hip, p.k2, p.f2);
-    ctx.strokeStyle = F.color; ctx.lineWidth = 5.5;
-    line(p.hip, p.neck);
-    line(p.hip, p.k1, p.f1);
-    line(p.sh, p.e1, p.h1);
+    const passes = dark ? [true, false] : [false];
+    for (const outline of passes) {
+      const ow = outline ? 4 : 0;
+      ctx.strokeStyle = outline ? COL.paper : F.back; ctx.lineWidth = 5 + ow;
+      strokeLine(p.sh, p.e2, p.h2); strokeLine(p.hip, p.k2, p.f2);
+      ctx.strokeStyle = outline ? COL.paper : F.color; ctx.lineWidth = 5.5 + ow;
+      strokeLine(p.hip, p.neck);
+      strokeLine(p.hip, p.k1, p.f1);
+      strokeLine(p.sh, p.e1, p.h1);
+      if (outline) { ctx.fillStyle = COL.paper; ctx.beginPath(); ctx.arc(p.head[0], p.head[1], LEN.head + 2.5, 0, Math.PI * 2); ctx.fill(); }
+    }
+    // held weapon
+    if (F.weapon) {
+      if (WEAPONS[F.weapon.type].thrown) drawShuriken(p.h1[0], p.h1[1], 7, sim.time * .004);
+      else if (p.wb && p.wt) drawWeapon(F.weapon.type, p.wb, p.wt);
+    }
     // headband tails on Red, streaming away from the direction of travel
     if (F.headband) {
       const ha = (F.pose.t + F.pose.h) * D, back = -F.f;
-      const ax = p.head[0] + Math.cos(ha) * 0 + back * Math.cos(ha) * LEN.head * .85, ay = p.head[1] - 3;
+      const ax = p.head[0] + back * Math.cos(ha) * LEN.head * .85, ay = p.head[1] - 3;
       const v = clamp(Math.abs(F.vx) * 40, 0, 14), wob = Math.sin(sim.time * .018);
-      ctx.lineWidth = 2.6;
+      ctx.strokeStyle = F.color; ctx.lineWidth = 2.6;
       ctx.beginPath(); ctx.moveTo(ax, ay);
       ctx.quadraticCurveTo(ax + back * 10, ay + 2 + wob * 2, ax + back * (22 + v), ay + 6 + wob * 4); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(ax, ay);
       ctx.quadraticCurveTo(ax + back * 8, ay + 6 - wob * 2, ax + back * (17 + v), ay + 13 - wob * 3); ctx.stroke();
     }
+    // golden spiky hair while Super Saiyan
+    if (F.ssj > 0) {
+      const ha = (F.pose.t + F.pose.h) * D, hx = p.head[0], hy = p.head[1];
+      ctx.beginPath();
+      const n = 7;
+      for (let i = 0; i <= n * 2; i++) {
+        const a = ha - Math.PI / 2 - F.f * (-1.5 + (i / (n * 2)) * 2.6) * 1;
+        const r = i % 2 ? LEN.head + 13 + hash(i) * 6 : LEN.head - 1;
+        ctx.lineTo(hx + Math.cos(a) * r * (i % 2 ? 1 : .9) - F.f * (i % 2 ? 3 : 0), hy + Math.sin(a) * r);
+      }
+      ctx.closePath(); ctx.fillStyle = COL.gold; ctx.fill(); ctx.strokeStyle = COL.ink; ctx.lineWidth = 1.2; ctx.stroke();
+    }
     ctx.fillStyle = F.color;
     ctx.beginPath(); ctx.arc(p.head[0], p.head[1], LEN.head, 0, Math.PI * 2); ctx.fill();
+    // charging ki between the hands
+    if (F.charge && F.charge.r > .5) {
+      const m = [(p.h1[0] + p.h2[0]) / 2, (p.h1[1] + p.h2[1]) / 2], r = F.charge.r * (1 + Math.sin(sim.time * .05) * .08);
+      ctx.fillStyle = F.color; ctx.globalAlpha = .2 * alpha; ctx.beginPath(); ctx.arc(m[0], m[1], r * 2, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = alpha; ctx.fillStyle = COL.paper; ctx.beginPath(); ctx.arc(m[0], m[1], r, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = F.color; ctx.lineWidth = 2.5; ctx.stroke();
+      ctx.lineWidth = 1.4;
+      for (let i = 0; i < 3; i++) {
+        let a = hash(i + boilFrame * 3) * 6.28, x = m[0], y = m[1]; ctx.beginPath(); ctx.moveTo(x, y);
+        for (let s = 0; s < 3; s++) { a += rand(-.6, .6); x += Math.cos(a) * r * .7; y += Math.sin(a) * r * .7; ctx.lineTo(x, y); }
+        ctx.stroke();
+      }
+    }
+    // rasengan in the palm
+    if (F.orb && F.orb.r > .5) {
+      const h = p.h1, r = F.orb.r, c = [h[0] + F.f * (r * .6), h[1] - r * .2], t = sim.time * .03;
+      ctx.fillStyle = F.color; ctx.globalAlpha = .18 * alpha; ctx.beginPath(); ctx.arc(c[0], c[1], r * 1.7, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = alpha; ctx.fillStyle = COL.paper; ctx.beginPath(); ctx.arc(c[0], c[1], r, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = F.color; ctx.lineWidth = 2;
+      for (let i = 0; i < 4; i++) { ctx.beginPath(); ctx.arc(c[0], c[1], r * (.35 + i * .2), t * (1 + i * .3) + i, t * (1 + i * .3) + i + 2.4); ctx.stroke(); }
+      ctx.lineWidth = 1.2;
+      for (let i = 0; i < 2; i++) { ctx.beginPath(); ctx.ellipse(c[0], c[1], r * 1.35, r * .5, t * .7 + i * 1.6, 0, Math.PI * 1.3); ctx.stroke(); }
+    }
+    // dazed stars circling the head
+    if (F.dazed > 0) {
+      ctx.fillStyle = COL.gold; ctx.strokeStyle = COL.ink; ctx.lineWidth = 1;
+      for (let i = 0; i < 3; i++) {
+        const a = sim.time * .008 + i * 2.1;
+        starPath(p.head[0] + Math.cos(a) * 17, p.head[1] - 20 + Math.sin(a) * 5, 5, 2.2, 5, a);
+        ctx.fill(); ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1;
   }
 
   function drawTrail(F) {
@@ -670,63 +1616,265 @@
     for (let i = 1; i < t.length; i++) {
       const a = t[i - 1], b = t[i];
       if (!a || !b) continue;
-      const k = 1 - b.age / 110;
-      ctx.strokeStyle = F.color; ctx.globalAlpha = .28 * k; ctx.lineWidth = 2 + 9 * k;
-      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      const k = 1 - b.age / 150;
+      if (b.x2 !== null && a.x2 !== null) {
+        ctx.fillStyle = F.color; ctx.globalAlpha = .22 * k;
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.lineTo(b.x2, b.y2); ctx.lineTo(a.x2, a.y2); ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = F.color; ctx.globalAlpha = .5 * k; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      } else {
+        ctx.strokeStyle = F.color; ctx.globalAlpha = .28 * k; ctx.lineWidth = 2 + 9 * k;
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      }
     }
     ctx.globalAlpha = 1;
   }
 
-  function star(x, y, r1, r2, n, seed) {
-    ctx.beginPath();
-    for (let i = 0; i < n * 2; i++) {
-      const a = (i / (n * 2)) * Math.PI * 2, r = (i % 2 ? r2 : r1) * (.8 + hash(seed + i) * .4);
-      ctx.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
-    }
-    ctx.closePath();
-  }
   function drawBursts() {
     for (const b of bursts) {
-      const grow = EASE.back(Math.min(1, b.age / 130));
       const fade = b.age < b.life * .55 ? 1 : 1 - (b.age - b.life * .55) / (b.life * .45);
       ctx.save(); ctx.globalAlpha = clamp(fade, 0, 1); ctx.translate(b.x, b.y); ctx.rotate(b.rot);
+      if (b.kind === "shout") {
+        const s = EASE.back(Math.min(1, b.age / 160));
+        ctx.scale(s, s);
+        ctx.font = `${b.size}px ${FONT_DISPLAY}`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        const ty = -(b.age / b.life) * 16;
+        ctx.lineWidth = 5; ctx.lineJoin = "round"; ctx.strokeStyle = COL.paper; ctx.strokeText(b.word, 0, ty);
+        ctx.fillStyle = b.color; ctx.fillText(b.word, 0, ty);
+        ctx.restore();
+        continue;
+      }
+      const grow = EASE.back(Math.min(1, b.age / 130));
       if (b.kind !== "whiff") {
         const s = b.size * grow;
-        star(0, 0, s, s * .45, b.kind === "heavy" ? 11 : 8, b.seed);
+        starPath(0, 0, s, s * .45, b.kind === "heavy" ? 11 : 8, 0, b.seed);
         ctx.fillStyle = COL.paper; ctx.fill();
         ctx.strokeStyle = b.color; ctx.lineWidth = 2.4; ctx.lineJoin = "round"; ctx.stroke();
-        star(0, 0, s * .5, s * .22, 6, b.seed + 9);
+        starPath(0, 0, s * .5, s * .22, 6, 0, b.seed + 9);
         ctx.fillStyle = b.color; ctx.fill();
-        // radiating speed ticks
         ctx.lineWidth = 2; ctx.lineCap = "round";
         for (let i = 0; i < 6; i++) {
           const a = (i / 6) * Math.PI * 2 + b.seed, r0 = s * 1.15, r1 = s * (1.15 + .5 * grow);
           ctx.beginPath(); ctx.moveTo(Math.cos(a) * r0, Math.sin(a) * r0); ctx.lineTo(Math.cos(a) * r1, Math.sin(a) * r1); ctx.stroke();
         }
       }
-      const fs = b.kind === "heavy" ? 30 : b.kind === "whiff" ? 19 : 22;
-      ctx.font = `700 ${fs}px ${b.kind === "whiff" ? FONT_HAND : FONT_DISPLAY}`;
-      ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      const ty = -b.size - 18 - (b.age / b.life) * 14;
-      ctx.lineWidth = 5; ctx.strokeStyle = COL.paper; ctx.strokeText(b.word, 0, ty);
-      ctx.fillStyle = b.kind === "whiff" ? COL.pencil : b.color; ctx.fillText(b.word, 0, ty);
+      if (b.word && b.word.trim()) {
+        const fs = b.kind === "heavy" ? 30 : b.kind === "whiff" ? 19 : 22;
+        ctx.font = `700 ${fs}px ${b.kind === "whiff" ? FONT_HAND : FONT_DISPLAY}`;
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        const ty = -b.size - 18 - (b.age / b.life) * 14;
+        ctx.lineWidth = 5; ctx.strokeStyle = COL.paper; ctx.strokeText(b.word, 0, ty);
+        ctx.fillStyle = b.kind === "whiff" ? COL.pencil : b.color; ctx.fillText(b.word, 0, ty);
+      }
       ctx.restore();
     }
   }
 
-  function drawFX() {
-    for (const s of stains) {
-      ctx.fillStyle = s.color; ctx.globalAlpha = .55;
-      ctx.beginPath(); ctx.ellipse(s.x, s.y, s.rx, s.ry, 0, 0, Math.PI * 2); ctx.fill();
+  function drawFX(front) {
+    if (!front) {
+      for (const s of stains) {
+        ctx.fillStyle = s.color; ctx.globalAlpha = .55;
+        ctx.beginPath(); ctx.ellipse(s.x, s.y, s.rx, s.ry, 0, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      for (const d of dusts) {
+        const k = d.age / d.life;
+        ctx.strokeStyle = world.domain ? COL.paper : COL.pencil; ctx.globalAlpha = .45 * (1 - k); ctx.lineWidth = 1.4;
+        ctx.beginPath(); ctx.arc(d.x, d.y - k * 10, d.r * (1 + k * 1.4), 0, Math.PI * 2); ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
     }
-    ctx.globalAlpha = 1;
-    for (const d of dusts) {
-      const k = d.age / d.life;
-      ctx.strokeStyle = COL.pencil; ctx.globalAlpha = .45 * (1 - k); ctx.lineWidth = 1.4;
-      ctx.beginPath(); ctx.arc(d.x, d.y - k * 10, d.r * (1 + k * 1.4), 0, Math.PI * 2); ctx.stroke();
+    for (const f of fxs) {
+      const isFront = f.type !== "crack" && f.type !== "rock";
+      if (isFront !== !!front) continue;
+      const k = f.life === Infinity ? 0 : clamp(f.age / f.life, 0, 1);
+      ctx.lineCap = "round"; ctx.lineJoin = "round";
+      if (f.type === "ring") {
+        ctx.strokeStyle = f.color; ctx.globalAlpha = 1 - k; ctx.lineWidth = f.lw;
+        ctx.beginPath(); ctx.arc(f.x, f.y, lerp(f.r0, f.r1, EASE.out(k)), 0, Math.PI * 2); ctx.stroke();
+      } else if (f.type === "slash") {
+        const g = Math.min(1, f.age / 70), x2 = lerp(f.x1, f.x2, g), y2 = lerp(f.y1, f.y2, g);
+        const nx = -(f.y2 - f.y1), ny = f.x2 - f.x1, nl = Math.hypot(nx, ny) || 1, w = (f.w || 3) * (1 - k);
+        ctx.globalAlpha = 1 - k * .8; ctx.fillStyle = f.color;
+        ctx.beginPath(); ctx.moveTo(f.x1, f.y1);
+        ctx.lineTo((f.x1 + x2) / 2 + nx / nl * w, (f.y1 + y2) / 2 + ny / nl * w); ctx.lineTo(x2, y2);
+        ctx.lineTo((f.x1 + x2) / 2 - nx / nl * w, (f.y1 + y2) / 2 - ny / nl * w); ctx.closePath(); ctx.fill();
+      } else if (f.type === "bolt") {
+        ctx.globalAlpha = 1 - k * .7;
+        for (let i = 0; i < 7; i++) {
+          let a = (i / 7) * 6.28 + hash(i + Math.floor(f.age / 50)) * .8, x = f.x, y = f.y;
+          ctx.strokeStyle = i % 3 === 0 ? COL.red : COL.ink; ctx.lineWidth = i % 3 === 0 ? 2 : 3.2;
+          ctx.beginPath(); ctx.moveTo(x, y);
+          const segs = 4 + (i % 3);
+          for (let s = 0; s < segs; s++) { a += (hash(i * 7 + s + Math.floor(f.age / 50) * 3) - .5) * 1.4; const l = 12 + hash(i + s * 3) * 14; x += Math.cos(a) * l; y += Math.sin(a) * l; ctx.lineTo(x, y); }
+          ctx.stroke();
+        }
+      } else if (f.type === "streak") {
+        ctx.strokeStyle = f.color; ctx.lineWidth = 2;
+        for (let i = 0; i < 7; i++) {
+          const x = f.x + (i - 3) * 6 + rand(-1, 1), y0 = lerp(f.y0, f.y1, hash(i) * .3), y1 = lerp(f.y1, f.y0, hash(i + 9) * .3);
+          ctx.globalAlpha = (1 - k) * (.4 + hash(i * 3) * .6);
+          strokeLine([x, y0 - k * 60], [x, y1 - k * 60]);
+        }
+      } else if (f.type === "crack") {
+        ctx.strokeStyle = COL.ink; ctx.lineWidth = 2; ctx.globalAlpha = .8;
+        strokeLine(f.start, ...f.pts); ctx.lineWidth = 1.4; strokeLine(f.start, ...f.pts2);
+      } else if (f.type === "shard") {
+        ctx.save(); ctx.translate(f.x, f.y); ctx.rotate(f.rot); ctx.globalAlpha = 1 - Math.max(0, k - .7) / .3;
+        ctx.strokeStyle = f.color; ctx.lineWidth = 3; strokeLine([-f.len / 2, 0], [f.len / 2, 0]); ctx.restore();
+      } else if (f.type === "rock") {
+        if (f.age < 0) continue;
+        ctx.save(); ctx.translate(f.x, f.y); ctx.rotate(f.rot); ctx.globalAlpha = 1 - k;
+        ctx.strokeStyle = world.domain ? COL.paper : COL.pencil; ctx.lineWidth = 1.5; ctx.strokeRect(-f.s, -f.s * .7, f.s * 2, f.s * 1.4); ctx.restore();
+      } else if (f.type === "mote") {
+        ctx.fillStyle = COL.gold; ctx.globalAlpha = .9; ctx.beginPath(); ctx.arc(f.x, f.y, 2, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = COL.gold; ctx.globalAlpha = .4; ctx.lineWidth = 1; strokeLine([f.x, f.y], [f.x - f.vx * 40, f.y - f.vy * 40]);
+      }
+      ctx.globalAlpha = 1;
     }
-    ctx.globalAlpha = 1;
-    for (const d of drops) { ctx.fillStyle = d.color; ctx.beginPath(); ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2); ctx.fill(); }
+    if (front) for (const d of drops) { ctx.fillStyle = d.color; ctx.beginPath(); ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2); ctx.fill(); }
+  }
+
+  function drawDomain() {
+    const d = world.domain;
+    if (!d) return;
+    ctx.save();
+    ctx.globalAlpha = d.fade;
+    ctx.beginPath(); ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2); ctx.clip();
+    ctx.fillStyle = d.kind === "void" ? COL.void : COL.shrine; ctx.fillRect(0, 0, W, H);
+    if (d.kind === "void") {
+      for (let i = 0; i < 90; i++) {
+        const x = hash(d.seed + i) * W, y = hash(d.seed + i * 2.3) * H, tw = .4 + .6 * Math.abs(Math.sin(sim.time * .003 + i));
+        ctx.fillStyle = COL.paper; ctx.globalAlpha = d.fade * tw * .8;
+        ctx.fillRect(x, y, 1.6, 1.6);
+      }
+      ctx.strokeStyle = d.owner.color === COL.blue ? COL.blueBack : COL.redBack; ctx.lineWidth = 1.2;
+      for (let k = 0; k < 7; k++) {
+        const r = (sim.time * .06 + k * 70) % 490;
+        ctx.globalAlpha = d.fade * (1 - r / 490) * .7;
+        ctx.beginPath(); ctx.arc(d.x, d.y, r, 0, Math.PI * 2); ctx.stroke();
+      }
+    } else {
+      ctx.strokeStyle = COL.paper; ctx.lineWidth = 1;
+      for (let i = 0; i < 46; i++) {
+        const x = hash(d.seed + i) * W, y = hash(d.seed + i * 1.7) * H, a = hash(d.seed + i * 3.1) * Math.PI, l = 20 + hash(i) * 50;
+        ctx.globalAlpha = d.fade * .18;
+        strokeLine([x - Math.cos(a) * l, y - Math.sin(a) * l], [x + Math.cos(a) * l, y + Math.sin(a) * l]);
+      }
+      ctx.fillStyle = COL.red; ctx.globalAlpha = d.fade * .5;
+      for (let x = 0; x < W; x += 26) { ctx.beginPath(); ctx.moveTo(x, GROUND + 8); ctx.lineTo(x + 13, GROUND - 14 - hash(x) * 14); ctx.lineTo(x + 26, GROUND + 8); ctx.fill(); }
+    }
+    ctx.restore();
+    ctx.save();
+    ctx.globalAlpha = d.fade; ctx.strokeStyle = d.owner.color; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawItems() {
+    for (const it of items) {
+      if (it.kind === "orb") {
+        const y = it.y + (it.landed ? Math.sin(it.age * .004) * 4 : 0), t = it.age * .002;
+        ctx.strokeStyle = COL.gold; ctx.lineWidth = 2;
+        for (let i = 0; i < 8; i++) {
+          const a = t + i * Math.PI / 4;
+          strokeLine([it.x + Math.cos(a) * 22, y + Math.sin(a) * 22], [it.x + Math.cos(a) * 29, y + Math.sin(a) * 29]);
+        }
+        ctx.fillStyle = COL.paper; ctx.beginPath(); ctx.arc(it.x, y, 16, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = COL.ink; ctx.lineWidth = 2; ctx.stroke();
+        starPath(it.x, y, 11, 4.6, 5, -Math.PI / 2 + Math.sin(t * 2) * .2);
+        ctx.fillStyle = COL.gold; ctx.fill(); ctx.strokeStyle = COL.ink; ctx.lineWidth = 1.2; ctx.stroke();
+        label("power-up", it.x, y - 36);
+        continue;
+      }
+      const spec = WEAPONS[it.type];
+      if (it.type === "shuriken") {
+        const base = it.landed ? GROUND - 3 : it.y;
+        drawShuriken(it.x - 8, base, 7, it.rot); drawShuriken(it.x + 6, base - 1, 7, it.rot + 1); drawShuriken(it.x - 1, base - 9, 7, it.rot + 2);
+        label(spec.name, it.x, base - 30);
+        continue;
+      }
+      const L = spec.len + spec.back;
+      let b, t;
+      if (it.landed) {
+        if (it.type === "hammer" || it.type === "staff") {
+          const s = it.flip;
+          t = [it.x + s * L / 2, GROUND - (it.type === "hammer" ? 12 : 4)]; b = [it.x - s * L / 2, GROUND - 4];
+        } else {
+          const a = Math.PI / 2 + it.tilt;
+          t = [it.x, GROUND + 7]; b = [it.x - Math.cos(a) * L, GROUND + 7 - Math.sin(a) * L];
+        }
+      } else {
+        const ux = Math.cos(it.rot), uy = Math.sin(it.rot);
+        b = [it.x - ux * L / 2, it.y - uy * L / 2]; t = [it.x + ux * L / 2, it.y + uy * L / 2];
+      }
+      drawWeapon(it.type, b, t);
+      if (it.landed) label(spec.name, it.x, Math.min(b[1], t[1]) - 16);
+    }
+  }
+  function label(text, x, y) {
+    ctx.font = `700 14px ${FONT_HAND}`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.lineWidth = 4; ctx.strokeStyle = COL.paper; ctx.strokeText(text, x, y);
+    ctx.fillStyle = COL.pencil; ctx.fillText(text, x, y);
+  }
+
+  function drawBeams() {
+    for (const b of world.beams) {
+      if (b.w < .5) continue;
+      const hw = b.w * (1 + .07 * Math.sin(sim.time * .06)), x0 = b.x0, x1 = b.end, y = b.y;
+      const band = (half, color, ph) => {
+        const n = Math.max(1, Math.ceil(Math.abs(x1 - x0) / 10));
+        ctx.beginPath();
+        for (let i = 0; i <= n; i++) { const x = lerp(x0, x1, i / n); ctx.lineTo(x, y - half + Math.sin(x * .11 + sim.time * .03 + ph) * half * .1); }
+        for (let i = n; i >= 0; i--) { const x = lerp(x0, x1, i / n); ctx.lineTo(x, y + half + Math.sin(x * .13 - sim.time * .05 + ph) * half * .1); }
+        ctx.closePath(); ctx.fillStyle = color; ctx.fill();
+      };
+      if (Math.abs(x1 - x0) > 1) {
+        ctx.globalAlpha = .25; band(hw * 1.5, b.owner.color, 2); ctx.globalAlpha = 1;
+        band(hw, b.owner.color, 0); band(hw * .42, COL.paper, 1);
+        ctx.strokeStyle = COL.paper; ctx.lineWidth = 1.2; ctx.globalAlpha = .7;
+        for (let i = 0; i < 4; i++) {
+          const off = ((sim.time * .9 + i * 97) % 200) / 200, sx = lerp(x0, x1, off), yy = y + (i - 1.5) * hw * .45;
+          strokeLine([sx, yy], [sx + b.dir * 26, yy]);
+        }
+        ctx.globalAlpha = 1;
+      }
+      for (const [cx, r] of [[x0, hw * 1.25], [x1, hw * 1.15]]) {
+        ctx.fillStyle = b.owner.color; ctx.beginPath(); ctx.arc(cx, y, r, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = COL.paper; ctx.beginPath(); ctx.arc(cx, y, r * .5, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    if (world.clash) {
+      const b = world.clash.b, s = 36 + Math.sin(sim.time * .04) * 8;
+      starPath(b.end, b.y, s, s * .5, 12, sim.time * .01, Math.floor(sim.time / 60));
+      ctx.fillStyle = COL.paper; ctx.fill(); ctx.strokeStyle = COL.ink; ctx.lineWidth = 2.5; ctx.stroke();
+      starPath(b.end, b.y, s * .5, s * .25, 8, -sim.time * .02);
+      ctx.fillStyle = COL.gold; ctx.fill();
+    }
+    for (const ball of world.bombs) {
+      if (ball.r < .5) continue;
+      ctx.fillStyle = ball.owner.color; ctx.globalAlpha = .16; ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.r * 1.45, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1; ctx.fillStyle = COL.paper; ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = ball.owner.color; ctx.lineWidth = 3; ctx.stroke();
+      ctx.lineWidth = 1.4; ctx.globalAlpha = .6;
+      for (let i = 0; i < 5; i++) { ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.r * (.25 + i * .14), sim.time * .004 * (i % 2 ? 1 : -1) + i, sim.time * .004 * (i % 2 ? 1 : -1) + i + 2.2); ctx.stroke(); }
+      ctx.globalAlpha = 1;
+    }
+    for (const p of projectiles) {
+      if (p.kind === "star") drawShuriken(p.x, p.y, 8, p.age * .03);
+      else {
+        const dir = Math.sign(p.vx) || 1, h = 58;
+        ctx.save(); ctx.translate(p.x, p.y); ctx.scale(dir, 1);
+        for (let i = 3; i >= 0; i--) {
+          ctx.globalAlpha = i ? .15 : 1;
+          ctx.save(); ctx.translate(-i * 18, 0);
+          ctx.beginPath(); ctx.moveTo(-6, -h); ctx.quadraticCurveTo(40, 0, -6, h); ctx.quadraticCurveTo(16, 0, -6, -h); ctx.closePath();
+          ctx.fillStyle = COL.ink; ctx.fill(); ctx.strokeStyle = p.owner.color; ctx.lineWidth = 3; ctx.stroke();
+          ctx.restore();
+        }
+        ctx.restore(); ctx.globalAlpha = 1;
+      }
+    }
   }
 
   function hatchBar(x, y, w, h, frac, lagFrac, color, fromRight) {
@@ -748,18 +1896,31 @@
       else { ctx.beginPath(); ctx.moveTo(bx, y - 1); ctx.lineTo(bx + dir * .8, y + 14); ctx.stroke(); }
     }
   }
+  function status(F) {
+    const parts = [];
+    if (F.weapon) parts.push(`${WEAPONS[F.weapon.type].name} ×${F.weapon.uses}`);
+    if (F.special) parts.push(`★ ${SPECIALS[F.special].name}`);
+    if (F.ssj > 0) parts.push(`Super Saiyan ${Math.ceil(F.ssj / 1000)}s`);
+    return parts.join("   ");
+  }
   function drawHUD() {
     const bw = 270, by = 34;
-    hatchBar(96, by, bw, 14, A.hp / 100, A.hpLag / 100, A.color, false);
-    hatchBar(W - 96 - bw, by, bw, 14, B.hp / 100, B.hpLag / 100, B.color, true);
+    hatchBar(96, by, bw, 14, A.hp / MAX_HP, A.hpLag / MAX_HP, A.color, false);
+    hatchBar(W - 96 - bw, by, bw, 14, B.hp / MAX_HP, B.hpLag / MAX_HP, B.color, true);
+    const dark = !!world.domain;
     ctx.font = `22px ${FONT_DISPLAY}`; ctx.textBaseline = "alphabetic";
-    ctx.fillStyle = A.color; ctx.textAlign = "left"; ctx.fillText(A.name.toUpperCase(), 96, by - 7);
-    ctx.fillStyle = B.color; ctx.textAlign = "right"; ctx.fillText(B.name.toUpperCase(), W - 96, by - 7);
+    ctx.lineWidth = 4; ctx.strokeStyle = COL.paper; ctx.lineJoin = "round";
+    ctx.fillStyle = A.color; ctx.textAlign = "left"; if (dark) ctx.strokeText(A.name.toUpperCase(), 96, by - 7); ctx.fillText(A.name.toUpperCase(), 96, by - 7);
+    ctx.fillStyle = B.color; ctx.textAlign = "right"; if (dark) ctx.strokeText(B.name.toUpperCase(), W - 96, by - 7); ctx.fillText(B.name.toUpperCase(), W - 96, by - 7);
     tally(A.wins, 98, by + 24, 1, A.color);
     tally(B.wins, W - 98, by + 24, -1, B.color);
-    ctx.fillStyle = COL.ink; ctx.textAlign = "center"; ctx.font = `20px ${FONT_DISPLAY}`;
+    ctx.font = `700 14px ${FONT_HAND}`; ctx.textBaseline = "top";
+    ctx.textAlign = "right"; ctx.fillStyle = A.color; const sa = status(A); if (dark) ctx.strokeText(sa, 96 + bw, by + 20); ctx.fillText(sa, 96 + bw, by + 20);
+    ctx.textAlign = "left"; ctx.fillStyle = B.color; const sb = status(B); if (dark) ctx.strokeText(sb, W - 96 - bw, by + 20); ctx.fillText(sb, W - 96 - bw, by + 20);
+    ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = dark ? COL.paper : COL.ink; ctx.textAlign = "center"; ctx.font = `20px ${FONT_DISPLAY}`;
     ctx.fillText(`R${round}`, W / 2, by + 13);
-    ctx.font = `500 11px ${FONT_MONO}`; ctx.fillStyle = COL.pencil; ctx.textAlign = "right";
+    ctx.font = `500 11px ${FONT_MONO}`; ctx.fillStyle = dark ? COL.paper : COL.pencil; ctx.textAlign = "right";
     const fr = Math.floor(sim.time / (1000 / 24));
     ctx.fillText(`fr ${String(fr).padStart(5, "0")} · 24 fps${slow ? " · slow-mo" : ""}${paused ? " · paused" : ""}`, W - 16, H - 14);
   }
@@ -770,9 +1931,30 @@
       ctx.save(); ctx.globalAlpha = clamp(a, 0, 1);
       ctx.translate(W / 2, 175); ctx.rotate(b.rot); ctx.scale(s, s);
       ctx.font = `${b.size}px ${FONT_DISPLAY}`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.lineWidth = b.size * .14; ctx.lineJoin = "round"; ctx.strokeStyle = COL.paper; ctx.strokeText(b.text, 0, 0);
+      ctx.lineWidth = b.size * .14; ctx.lineJoin = "round"; ctx.strokeStyle = b.stroke; ctx.strokeText(b.text, 0, 0);
       ctx.fillStyle = b.color; ctx.fillText(b.text, 0, 0);
       ctx.restore();
+    }
+  }
+  function drawOverlays() {
+    const ts = world.ts;
+    if (ts) {
+      if (ts.gray) {
+        ctx.globalCompositeOperation = "saturation"; ctx.fillStyle = "#808080"; ctx.fillRect(-20, -20, W + 40, H + 40);
+        ctx.globalCompositeOperation = "source-over";
+        ctx.fillStyle = "rgba(60,80,140,.07)"; ctx.fillRect(-20, -20, W + 40, H + 40);
+      }
+      if (ts.r > 0) {
+        ctx.globalCompositeOperation = "difference"; ctx.fillStyle = "#ffffff";
+        ctx.beginPath(); ctx.arc(ts.x, ts.y, ts.r, 0, Math.PI * 2); ctx.fill();
+        ctx.globalCompositeOperation = "source-over";
+      }
+    }
+    const fl = world.flash;
+    if (fl) {
+      const k = 1 - fl.age / fl.life;
+      if (fl.invert) { ctx.globalCompositeOperation = "difference"; ctx.fillStyle = "#ffffff"; ctx.fillRect(-20, -20, W + 40, H + 40); ctx.globalCompositeOperation = "source-over"; }
+      else { ctx.globalAlpha = .6 * k; ctx.fillStyle = fl.color; ctx.fillRect(-20, -20, W + 40, H + 40); ctx.globalAlpha = 1; }
     }
   }
 
@@ -782,12 +1964,18 @@
     ctx.drawImage(paper, 0, 0);
     const sx = shakeAmp ? rand(-shakeAmp, shakeAmp) : 0, sy = shakeAmp ? rand(-shakeAmp, shakeAmp) * .6 : 0;
     ctx.setTransform(scale, 0, 0, scale, sx * scale, sy * scale);
-    drawFX();
-    drawTrail(A); drawTrail(B);
+    drawDomain();
+    drawFX(false);
+    drawItems();
+    const all = [A, B, ...extras];
+    all.forEach(drawTrail);
     // whoever is attacking is drawn on top
-    const order = A.key && A.key.trail ? [B, A] : [A, B];
-    order.forEach(F => drawFighter(F, F === A ? 1 : 77));
+    const order = [...extras, ...(A.key && A.key.trail ? [B, A] : [A, B])];
+    order.forEach(F => drawFighter(F, F === A ? 1 : F === B ? 77 : 140));
+    drawBeams();
+    drawFX(true);
     drawBursts();
+    drawOverlays();
     ctx.setTransform(scale, 0, 0, scale, 0, 0);
     drawHUD();
     drawBanners();
@@ -800,21 +1988,102 @@
     const due = sim.waits.filter(w => w.t <= 0);
     sim.waits = sim.waits.filter(w => w.t > 0);
     due.forEach(w => w.r());
-    A.update(dt); B.update(dt);
-    for (const b of bursts) b.age += dt;
+    for (const tw of world.tweens) {
+      tw.t += dt;
+      const u = Math.min(1, tw.t / tw.dur);
+      tw.obj[tw.key] = tw.from + (tw.to - tw.from) * tw.ease(u);
+    }
+    const doneT = world.tweens.filter(tw => tw.t >= tw.dur);
+    world.tweens = world.tweens.filter(tw => tw.t < tw.dur);
+    doneT.forEach(tw => tw.r());
+
+    const frozen = world.frozen;
+    for (const F of [A, B, ...extras]) if (!frozen.includes(F)) F.update(dt);
+    for (const ball of world.bombs) {
+      if (ball.charging) {
+        const o = ball.owner.pts;
+        ball.x = (o.h1[0] + o.h2[0]) / 2; ball.y = Math.min(o.h1[1], o.h2[1]) - ball.r - 2;
+        if (Math.random() < dt / 25) {
+          const a = rand(Math.PI * 1.05, Math.PI * 1.95), d = rand(260, 420);
+          fxs.push({ type: "mote", x: ball.x + Math.cos(a) * d, y: ball.y + Math.sin(a) * d * .7 + 60, vx: 0, vy: 0, ball, age: 0, life: 3000 });
+        }
+      } else if (ball.fly) {
+        const f = ball.fly;
+        ball.x = lerp(f.from[0], f.to[0], f.t); ball.y = lerp(f.from[1], f.to[1], f.t) - Math.sin(Math.PI * f.t) * 50;
+      }
+    }
+    for (const b of bursts) if (!b.pending) b.age += dt;
     bursts = bursts.filter(b => b.age < b.life);
     for (const b of banners) b.age += dt;
     banners = banners.filter(b => b.age < b.life);
-    for (const d of dusts) { d.age += dt; d.x += d.vx * dt; }
-    dusts = dusts.filter(d => d.age < d.life);
-    for (const d of drops) {
-      d.vy += .0011 * dt; d.x += d.vx * dt; d.y += d.vy * dt;
-      if (d.y >= GROUND + 1) {
-        d.dead = true;
-        if (stains.length < 260) stains.push({ x: d.x, y: GROUND + rand(1, 5), rx: d.r * rand(1.3, 2.2), ry: d.r * .55, color: d.color });
+    if (!frozen.length) {
+      for (const d of dusts) { d.age += dt; d.x += d.vx * dt; }
+      dusts = dusts.filter(d => d.age < d.life);
+      for (const d of drops) {
+        d.vy += .0011 * dt; d.x += d.vx * dt; d.y += d.vy * dt;
+        if (d.y >= GROUND + 1) {
+          d.dead = true;
+          if (stains.length < 260) stains.push({ x: d.x, y: GROUND + rand(1, 5), rx: d.r * rand(1.3, 2.2), ry: d.r * .55, color: d.color });
+        }
+      }
+      drops = drops.filter(d => !d.dead && d.x > -20 && d.x < W + 20);
+    }
+    for (const f of fxs) {
+      f.age += dt;
+      if (f.type === "shard") {
+        if (f.y < GROUND) { f.vy += .0012 * dt; f.x += f.vx * dt; f.y += f.vy * dt; f.rot += f.vr * dt; }
+        else f.y = GROUND;
+      } else if (f.type === "rock" && f.age > 0) { f.y += f.vy * dt; f.rot += .002 * dt; }
+      else if (f.type === "mote") {
+        const dx = f.ball.x - f.x, dy = f.ball.y - f.y, d = Math.hypot(dx, dy) || 1;
+        f.vx = dx / d * .4; f.vy = dy / d * .4; f.x += f.vx * dt; f.y += f.vy * dt;
+        if (d < f.ball.r || !world.bombs.includes(f.ball)) f.age = f.life;
       }
     }
-    drops = drops.filter(d => !d.dead && d.x > -20 && d.x < W + 20);
+    fxs = fxs.filter(f => f.age < f.life);
+    for (const it of items) {
+      it.age += dt;
+      if (it.landed) continue;
+      if (it.kind === "orb") {
+        it.y += it.vy * dt;
+        if (it.y >= GROUND - 46) { it.y = GROUND - 46; it.landed = true; }
+      } else {
+        it.vy += .0012 * dt; it.x = clamp(it.x + it.vx * dt, XMIN, XMAX); it.y += it.vy * dt; it.rot += it.vr * dt;
+        if (it.y >= GROUND - 4) {
+          it.y = GROUND - 4; it.landed = true; it.flip = Math.random() < .5 ? 1 : -1; it.tilt = rand(-.25, .25);
+          dust(it.x, 6, GROUND, 14); SFX.tink();
+        }
+      }
+    }
+    for (const p of projectiles) {
+      p.age += dt; p.x += p.vx * dt; p.y += p.vy * dt;
+      if (p.falling) p.vy += .0016 * dt;
+      const T = p.target, ahead = (T.x - p.x) * Math.sign(p.vx);
+      if (!p.reacted && ahead < (p.kind === "crescent" ? 170 : 110)) {
+        p.reacted = true;
+        if (p.out === "dodge") T.play(p.kind === "crescent" ? hopKeys() : duckKeys(), true);
+        if (p.out === "block") T.play([{ pose: P.BLOCK_HIGH, dur: 80, ease: EASE.out }, { pose: P.BLOCK_HIGH, dur: 300 }], true);
+      }
+      if (!p.arrived && ahead <= 10) {
+        p.arrived = true;
+        if (p.out === "hit") {
+          p.dead = true;
+          damage(p.owner, T, p.dmg, p.kind === "crescent" ? { heavy: true, knock: "air", p: [p.x, chest(T)[1]], word: "SLASH", blade: true } : { height: "high", p: [p.x, p.y], word: "SHNK", blade: true });
+        } else if (p.out === "block") {
+          p.falling = true; p.vx *= -.25; p.vy = -.45;
+          burst([p.x, p.y], COL.ink, 12, "TINK", "block"); SFX.tink();
+        }
+      }
+      if (p.x < -60 || p.x > W + 60 || p.y > GROUND + 4) p.dead = true;
+      if (p.dead && !p.resolved) { p.resolved = true; p.resolve(); }
+    }
+    projectiles = projectiles.filter(p => !p.dead);
+    if (world.fighting && !roundOver) {
+      world.spawnT -= dt;
+      if (world.spawnT <= 0) { if (items.length < 2) spawnItem(); world.spawnT = rand(5500, 9000); }
+    }
+    if (world.rumble > 0) { world.rumble -= dt; shake(2.5); }
+    if (world.flash) { world.flash.age += dt; if (world.flash.age >= world.flash.life) world.flash = null; }
   }
 
   let last = performance.now();
@@ -842,7 +2111,10 @@
 
   // ---------- controls ----------
   const $ = id => document.getElementById(id);
-  const btnPlay = $("btn-play"), btnStep = $("btn-step"), btnSlow = $("btn-slow"), btnSound = $("btn-sound");
+  const btnPlay = $("btn-play"), btnStep = $("btn-step"), btnSlow = $("btn-slow"), btnSound = $("btn-sound"), pickPower = $("pick-power");
+  for (const [k, s] of Object.entries(SPECIALS)) { const o = document.createElement("option"); o.value = k; o.textContent = s.name; pickPower.appendChild(o); }
+  pickPower.addEventListener("change", () => { forcedPower = pickPower.value; });
+  forcedPower = pickPower.value;
   function syncButtons() {
     btnPlay.firstChild.textContent = paused ? "Play " : "Pause ";
     btnPlay.setAttribute("aria-pressed", String(paused));
@@ -855,21 +2127,37 @@
   const toggleSlow = () => { slow = !slow; syncButtons(); };
   const toggleSound = () => { soundOn = !soundOn && ensureAudio(); syncButtons(); };
   const doRestart = () => restart(true);
+  const dropOrb = () => { if (items.length < 4) spawnItem("orb"); };
+  const dropWeaponItem = () => { if (items.length < 4) spawnItem("weapon"); };
   btnPlay.addEventListener("click", togglePause);
   btnStep.addEventListener("click", step);
   btnSlow.addEventListener("click", toggleSlow);
   btnSound.addEventListener("click", toggleSound);
   $("btn-restart").addEventListener("click", doRestart);
+  $("btn-orb").addEventListener("click", dropOrb);
+  $("btn-weapon").addEventListener("click", dropWeaponItem);
   cv.addEventListener("click", togglePause);
   window.addEventListener("keydown", e => {
-    if (e.target.closest && e.target.closest("button") && (e.key === " " || e.key === "Enter")) return;
+    if (e.target.closest && e.target.closest("button, select") && (e.key === " " || e.key === "Enter" || e.key.startsWith("Arrow"))) return;
     const k = e.key.toLowerCase();
     if (k === " ") { e.preventDefault(); togglePause(); }
     else if (k === "." || k === "arrowright") step();
     else if (k === "s") toggleSlow();
     else if (k === "m") toggleSound();
     else if (k === "r") doRestart();
+    else if (k === "p") dropOrb();
+    else if (k === "w") dropWeaponItem();
   });
+
+  // console handle for tinkering: marginFight.give("kamehameha", "Red")
+  window.marginFight = {
+    give(power, who = "Blue") { const F = who === "Red" ? B : A; if (SPECIALS[power]) F.special = power; },
+    arm(type, who = "Blue") { const F = who === "Red" ? B : A; if (WEAPONS[type]) F.weapon = { type, uses: WEAPONS[type].uses }; },
+    drop: spawnItem,
+    powers: Object.keys(SPECIALS), weapons: Object.keys(WEAPONS),
+    state: () => ({ items: items.map(i => ({ kind: i.kind, x: Math.round(i.x), landed: i.landed, claimed: !!i.claimed })),
+      fighters: [A, B].map(F => ({ name: F.name, x: Math.round(F.x), hp: Math.round(F.hp), special: F.special, weapon: F.weapon && F.weapon.type, down: F.down, hold: F.hold, busy: F.busy })) }),
+  };
 
   new ResizeObserver(resize).observe(cv);
   resize();
